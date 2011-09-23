@@ -1,125 +1,13 @@
 (in-package "BLOG")
 
-(defvar *password-ns* "PW")
-(defvar *settings-ns* "SET")
-(defvar *pst-ns* "PST")
-(defvar *pst-title* "PST-TITLE")
-(defvar *pst-idx* "PSTDX")
-(defvar *login-cookie-ns* "LC")
-(defvar *chat-ns* "CHAT")
-(defvar *friends-ns* "FRND")
-(defvar *followers-ns* "FOLW")
-(defvar *mailbox-ns* "MLBX")
-(defvar *follower-mailboxes-ns* "FMBX")
-(defvar *post-counter* "PST-CNT")
+(defvar *site-cookie-name*)
 
-(defvar *expire-days* 1)
-(defvar *login-timeout* (* *expire-days* 24 60 60))
-
-(defun uuid-string (&optional (uuid (uuid:make-v4-uuid)))
-  (with-open-stream (s (make-string-output-stream))
-    (uuid:print-bytes s uuid)
-    (get-output-stream-string s)))
-
-(defvar *salt* (let ((salt (redis:with-connection () (redis:red-get "PASSWORD:SALT"))))
-		       (if salt 
-			   salt
-			   (let ((uuid (uuid-string))) 
-			     (redis:with-connection () (redis:red-set "PASSWORD:SALT" uuid))
-			     uuid))))
-
-(defvar *site-cookie-name* (let ((cookie (redis:with-connection () (redis:red-get "SITE:COOKIE"))))
-			     (if cookie 
-				 cookie
-				 (let ((uuid (uuid-string))) 
-				   (redis:with-connection () (redis:red-set "SITE:COOKIE" uuid))
-				   uuid)))) ;;can go into redis later on.
-
-(defvar *auth-code* "lisp rocks")
-
-(setf *yaws-server-node-name* "jon-desktop")
-(setf *cookie-file* "/home/jon/Dropbox/Lisp-on-Yaws/COOKIE")
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  ;;really should compare the connection, but i don't plan to use more than 1
-
-  (defvar *redis-connection-queue* (sb-concurrency::make-queue))
-  (defvar *redis-mutex* (bt:make-recursive-lock))
-;;;instead of this stuff should do a connection pool
-
-
-  (defmacro with-recursive-connection ((&key (host #(127 0 0 1))
-					     (port 6379))
-				       &body body)
-    #|`(redis:with-recursive-connection (:host ,host :port ,port)
-    ,@body)|#
-    
-    #|`(bt:with-recursive-lock-held (*redis-mutex*)
-    (redis:with-recursive-connection ,connection-spec ,@body)))|#
-
-    (let ((connection (gensym)))
-      `(if (redis::connected-p)
-	     (progn
-	       ;(format t "recursive: ~s~%" redis::*connection*)
-	       ,@body)
-	     (let ((,connection (sb-concurrency:dequeue blog::*redis-connection-queue*)))
-	       (if (and ,connection (redis::open-connection-p ,connection))
-		   (let ((redis::*connection* ,connection))
-		;     (format t "reuse:~s~%"  redis::*connection*)
-		     (unwind-protect (progn ,@body)
-		       (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*)))
-		   (let ((redis::*connection* (make-instance 'redis::redis-connection
-							     :host ,host
-							     :port ,port)))
-		 ;    (format t "new:~s~%" redis::*connection*)
-		     (unwind-protect (progn ,@body)
-		       (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*))))))))
-
-(defun close-all-redis-connections ()
-  (bt:with-recursive-lock-held (blog::*redis-mutex*)
-    (do  ((connection (sb-concurrency::dequeue *redis-connection-queue*) (sb-concurrency:dequeue *redis-connection-queue*)))
-	 ((not connection))
-      (redis::close-connection connection))))
-
-  (defmacro with-transaction (&body body)
-    (let ((completed (gensym)))
-      `(let ((,completed nil))
-	 (unwind-protect
-	      (progn 
-		(redis:red-multi)
-		,@body
-		(redis:red-exec)
-		(setf ,completed t))
-	   (unless ,completed (redis:red-discard))))))
-
-  (ps:defpsmacro js-link (link div-id &optional afterfn object)
-    (let ((data (gensym)))
-      `($.get ,link
-	      ,(if object object `(ps:create))
-	      (lambda (,data)
-		(console.log ,data)
-		(ps:chain ($ ,div-id) 
-			  (html ,data))
-		,@(if afterfn
-		      `((,afterfn))
-		      ())))))
-
-  (ps:defpsmacro defpostfn (name path 
-				 (args1 &body body1) 
-				 (args2 &body body2))
-    (let ((strings (mapcar #'(lambda (symbol) (string-downcase (symbol-name symbol))) path)))
-      (let ((path-name (reduce (lambda (name1 name2)
-				 (format nil "~a~a/" name1 name2)) 
-			       (cons (format nil "/~a/" (car strings))
-				     (cdr strings))))
-	    (post-result (gensym)))
-	`(defun ,name (,@args1)
-	   (let ((,post-result (progn ,@body1)))
-	     ($.post 
-	      ,path-name
-	      ,post-result
-	      (lambda (,@args2) ,@body2)))))))
-
+#|(defun read-body (stream &optional (len (file-length stream)))
+  (let* ((pos (file-position stream))
+	 (body-string (make-string (- len pos))))
+    (read-sequence body-string stream)
+    body-string))|#
+(eval-when (:load-toplevel :compile-toplevel :execute)
   (defmacro reply-status (status &rest plist)
     (let (values-list
 	  keys-list
@@ -145,209 +33,7 @@
 	(if gsyms
 	    `(let ,gsyms
 	       ,body)
-	    body))))
-					   
-  (defun clickable-li (stream name &rest rest)
-    (cl-who:with-html-output (stream)
-      (:li :onclick (ps:ps-inline* `(js-link ,@rest))
-	   (cl-who:str name))))
-
-  (defmacro destructure-props (indicator-plist list &body body)
-    (let ((gkey (gensym))
-	  (glist (gensym))
-	  (gval (gensym))
-	  (grest (gensym)))
-      `(let ((,glist ,list))
-	 (let (,@(mapcar #'first indicator-plist))
-	   (do* ((,gkey (car ,glist) (car ,grest))
-		 (,gval (cadr ,glist) (cadr ,grest))
-		 (,grest (cddr ,glist) (cddr ,grest)))
-		((null ,gkey))
-	     (cond ,@(mapcar (lambda (pair) 
-			       `((string= ,(second pair) ,gkey)
-				 (setf ,(first pair) ,gval)))
-			     indicator-plist)))
-	   ,@body))))
-
-  (defmacro bind-query (query-bind pairlist &body body)
-    (let ((q (or (first query-bind) (gensym "q"))))
-      `(let* ((,q (parse-query lisp-on-yaws::*query*)))
-	 (let ,(mapcar (lambda (pair)
-			 (let ((symbol (first pair))
-			       (string (second pair)))
-			   `(,symbol (second (assoc ,string ,q :test #'string=))))) pairlist)
-	   ,@body)))))
-
-
-(defun has-textp (string)
-  (and (> (length string) 0) (some #'alphanumericp string)))
-
-(defun safe-parse-int (string &optional (radix 10))
-  (when (and string (every #'(lambda (char) (digit-char-p char radix)) string))
-    (parse-integer string)))
-
-(defun predicate (key ns) (concatenate 'string ns ":" key))
-
-(defun timestamp ()
-  (multiple-value-bind (second minute hour date month year)  
-      (decode-universal-time (get-universal-time))
-    (format nil "~a/~2,'0d/~2,'0d ~2,'0d:~2,'0d:~2,'0d" year month date hour minute second)))
-
-(defun read-body (stream &optional (len (file-length stream)))
-  (let* ((pos (file-position stream))
-	 (body-string (make-string (- len pos))))
-    (read-sequence body-string stream)
-    body-string))
-
-(defun getprop (list indicator &optional (default nil))
-  (do* ((key (car list) (car rest))
-	(val (cadr list) (cadr rest))
-	(rest (cddr list) (cddr rest)))
-       ((or (string-equal key indicator) (null key)) (or val default))))
-
-(defun setredis (key ns val &optional secs)
-  (let ((predicated (predicate key ns)))
-    (if secs
-	(with-recursive-connection ()
-	  (first (redis:with-pipelining 
-		   (redis:red-set predicated val)
-		   (redis:red-expire predicated secs))))
-	(with-recursive-connection ()
-	  (redis:red-set predicated val)))))
-
-
-
-(defun getredis (key ns)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-		       (redis:red-get predicated))))
-
-(defun hgetredis (key field ns)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (redis:red-hget predicated field))))
-
-(defun hsetredis (key field value ns)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (redis:red-hset predicated field value))))
-
-(defun hmgetredis (key ns)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (redis:red-hgetall predicated))))
-
-(defun hmsetredis (key ns &rest vals)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (apply #'redis:red-hmset predicated vals))))
- 
-
-(defun lpushredis (key ns val)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (redis:red-lpush predicated val))))
-
-(defun lrangeredis (key ns start end)
-  (let ((predicated (predicate key ns)))
-    (with-recursive-connection ()
-      (redis:red-lrange predicated start end))))
-
-(defsetf getredis (key ns &optional expire) (store)
-  (if expire
-      `(setredis ,key ,ns ,store ,expire)
-      `(setredis ,key ,ns ,store)))
-
-(defun add-post-to-follower-mailboxes (author post-id)
-  (with-recursive-connection ()
-    (let ((mailboxes (redis:red-smembers (predicate author *follower-mailboxes-ns*))))
-      (redis:with-pipelining 
-	(dolist (mailbox mailboxes)
-	  (redis:red-lpush mailbox post-id))))))
-
-(defun generate-post-html (post-id universal-time author title body)
-  (multiple-value-bind (second minute hour date month year)  (decode-universal-time universal-time)
-    (declare (ignore second))
-    (let* ((body-string (let ((s (make-string-output-stream))) 
-				   (cl-markdown:markdown body :stream s)
-				   (get-output-stream-string s)))
-	   (date-string (format nil "At ~a/~2,'0d/~2,'0d ~2,'0d:~2,'0d" year month date hour minute))
-	   (page (cl-who:with-html-output-to-string (var)
-		   (:h2 
-		    (:a :href 
-			(format nil "/blog/viewpost/~a" post-id)
-			(cl-who:str title)))
-		   (cl-who:str body-string)
-		   (:a :href (cl-who:str (format nil "/blog/main/~a" author))
-		       (:h4 (cl-who:str (hgetredis author "display-name" *settings-ns*))))
-		   (:h4 (cl-who:str date-string)))))
-      page)))
-
-
-(defun generate-post-from-db (pst-id)
-    (let ((pst-props (hmgetredis pst-id *pst-ns*)))
-      (if pst-props
-	  (destructure-props ((universal-time "time")
-			      (author "author")
-			      (title "title")
-			      (body "body"))
-	      pst-props
-	    (let ((time (safe-parse-int universal-time)))
-	      (generate-post-html pst-id time author title body)))
-	  "")))
-
-(defun generate-post-entry (title author lines)
-  (let* ((time (get-universal-time))
-	 (post-id (with-recursive-connection ()
-		    (first (fourth (redis:with-pipelining 
-				     (with-transaction 
-				       (redis:red-get *post-counter*)
-				       (redis:red-incr *post-counter*))))))))
-    (with-recursive-connection ()
-      (redis:with-pipelining
-	(lpushredis author *pst-idx* post-id)
-	(hmsetredis post-id *pst-ns* 
-		    "title" title
-		    "author" author
-		    "time" time
-		    "body" lines))
-      (add-post-to-follower-mailboxes author post-id))
-    post-id))
-
-
-
-
-(defun most-recent-post (author)
-  (first (lrangeredis author *pst-idx* 0 0)))
-
-(defun generate-index (author &key (start 0) (end -1))
-  (let ((post-index (lrangeredis author *pst-idx*  start end)))
-    (cl-who:with-html-output-to-string (var)
-      (:ul :class "navbar"
-	   (loop for id in post-index
-	      do 
-	      (let ((link (format nil "/blog/viewpost/~a" id)))
-		(clickable-li var (hgetredis id "title" *pst-ns*)  link "div#blog"))))
-      (:input :type "hidden" :id "latest" :name "latest" :value (most-recent-post author)))))
-
-(defun obfuscate-password (password)
-  (let* ((salted (concatenate 'string *salt* password)))
-    (map 'string #'code-char (md5::MD5SUM-SEQUENCE salted))))
-
-(defun add-password (name password)
-    (setf (getredis (string-downcase name) *password-ns*) (obfuscate-password password)))
-
-(defun check-password (name password)
-  (string= (getredis (string-downcase name) *password-ns*) (obfuscate-password password)))
-
-
- 
-(defun named-link (stream name &rest rest)
-  (cl-who:with-html-output (stream)
-    (:a :href "#" :onclick  
-	(ps:ps-inline* `(js-link ,@rest))
-	(cl-who:str name))))
-
+	    body)))))
 ;(init-appmod blog)
 
 (defhandler (blog get ("static")) (:|html|)
@@ -786,7 +472,7 @@
 				:br
 				(:input :type "submit" :value "Register")))))))
 
-(defvar *users* "USERS")
+
 
 (defhandler (blog post ("register")) (:|content| "application/json")
   #|(let*  ((q (parse-query *query*))
@@ -841,16 +527,7 @@
 
 
 
-(defun create-login (user password)
-  (when (check-password user password)
-    (let* ((uuid (uuid-string)))
-      (setf (getredis uuid *login-cookie-ns* *login-timeout*) (string-downcase user))
-      uuid)))
 
-(defun check-login (uuid)
-  (let ((user (getredis uuid *login-cookie-ns*)))
-    (when user
-      (setf (getredis uuid *login-cookie-ns* *login-timeout*) user) user)))
 
 (defhandler (blog post ("login")) (:|content| "application/json")
   (let ((q (parse-query *query*)))
@@ -1060,7 +737,25 @@
 (generate-appmods)
 
 (defun blog-main ()
+  
+  ;;can go into redis later on.
+
+  (setf *yaws-server-node-name* "jon-desktop")
+  (setf *cookie-file* "/home/jon/github/Lisp-on-Yaws/COOKIE")
+
   (with-recursive-connection ()
+    (setf *salt* (let ((salt (redis:red-get "PASSWORD:SALT")))
+		   (if salt 
+		       salt
+		       (let ((uuid (uuid-string))) 
+			 (redis:red-set "PASSWORD:SALT" uuid)
+			 uuid))))
+    (setf *site-cookie-name* (let ((cookie  (redis:red-get "SITE:COOKIE")))
+			       (if cookie 
+				   cookie
+				   (let ((uuid (uuid-string))) 
+				     (redis:red-set "SITE:COOKIE" uuid)
+				   uuid))))
     (unless (redis:red-get *post-counter*) (redis:red-set *post-counter* 0)))
   (init-server-connection)
   (init-reply-chat-thread)
