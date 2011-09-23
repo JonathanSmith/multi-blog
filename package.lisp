@@ -5,7 +5,7 @@
   (ql:quickload "uuid")
   (ql:quickload "cl-json")
   (ql:quickload "cl-sendmail")
-  (ql:quickload "cl-redis")
+  (asdf:operate 'asdf:load-op  :cl-redis)
   (asdf:operate 'asdf:load-op :parenscript)
   (asdf:operate 'asdf:load-op :lisp-on-yaws))
 

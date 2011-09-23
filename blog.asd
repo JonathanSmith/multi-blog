@@ -15,5 +15,12 @@
 	     :lisp-on-yaws)
     :version "0.0.1"
     :components ((:file "blog"
-			:depends-on ("package"))
+			:depends-on ("package" "query" :utils))
+		 (:file "query"
+			:depends-on ("package" :utils))
+		 (:module :utils
+			  :components ((:file "munge")
+				       (:file "ps")
+				       (:file "redis"))
+			  :depends-on ("package"))
 		 (:file "package")))
