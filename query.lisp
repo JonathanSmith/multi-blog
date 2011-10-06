@@ -6,6 +6,7 @@
 (defvar *pst-ns* "PST")
 (defvar *pst-title* "PST-TITLE")
 (defvar *pst-idx* "PSTDX")
+(defvar *pst-dict* "PSTDCT")
 (defvar *login-cookie-ns* "LC")
 (defvar *chat-ns* "CHAT")
 (defvar *friends-ns* "FRND")
@@ -13,6 +14,7 @@
 (defvar *mailbox-ns* "MLBX")
 (defvar *follower-mailboxes-ns* "FMBX")
 (defvar *post-counter* "PST-CNT")
+(defvar *registration-tokens* "REGTKN")
 
 (defvar *expire-days* 1)
 (defvar *login-timeout* (* *expire-days* 24 60 60))
@@ -57,6 +59,7 @@
 				       (redis:red-incr *post-counter*))))))))
     (with-recursive-connection ()
       (redis:with-pipelining
+	(saddredis author *pst-dict* post-id)
 	(lpushredis author *pst-idx* post-id)
 	(hmsetredis post-id *pst-ns* 
 		    "title" title
@@ -65,6 +68,14 @@
 		    "body" lines))
       (add-post-to-follower-mailboxes author post-id))
     post-id))
+
+(defun update-post-entry (post-id title author lines)
+  (let* ((time (get-universal-time)))
+    (hmsetredis post-id *pst-ns* 
+		"title" title
+		"author" author
+		"time" time
+		"body" lines)))
 
 (defun add-post-to-follower-mailboxes (author post-id)
   (with-recursive-connection ()

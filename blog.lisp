@@ -1,12 +1,8 @@
 (in-package "BLOG")
 
 (defvar *site-cookie-name*)
+(defvar *domain-root* "0.0.0.0:8080")
 
-#|(defun read-body (stream &optional (len (file-length stream)))
-  (let* ((pos (file-position stream))
-	 (body-string (make-string (- len pos))))
-    (read-sequence body-string stream)
-    body-string))|#
 (eval-when (:load-toplevel :compile-toplevel :execute)
   (defmacro reply-status (status &rest plist)
     (let (values-list
@@ -35,12 +31,6 @@
 	       ,body)
 	    body)))))
 ;(init-appmod blog)
-
-(defhandler (blog get ("static")) (:|html|)
-  (reply (cl-who:with-html-output-to-string (var)
-	   (:html (:head (:title (cl-who:str "title here"))
-			 (:meta :http-equiv "refresh" :content "1"))
-		  (:body "Baseline to help determine if bug in CL-Redis or CLERIC or Lisp On Yaws")))))
 
 (defhandler (blog get ("viewpost" postid)) (:|html|)
   (if postid
@@ -119,7 +109,10 @@
 			   (cl-who:with-html-output-to-string (var)
 			     (:ul
 			      (clickable-li var "Add A Post" "/blog/post/new" "div#blog")
-			      (clickable-li var "Edit a Post" "/blog/post/edit" "div#blog")
+			      (clickable-li var "Edit a Post" "/blog/post/edit" "div#blog" '(lambda ()) '(ps:create 
+													  :session-id (ps:chain ($ "input#session-id") (val))
+													  :start 0
+													  :end 20))
 			      (clickable-li var "View Feed" "/blog/friend-feed/" "div#blog"
 					    '(lambda ())
 					    '(ps:create 
@@ -176,6 +169,27 @@
 				  (user (ps:getprop data 'user))
 				  (posts-link (concatenate 'string
 							   "/blog/viewpost/" most-recent-post))
+				  (indexes-link (concatenate 'string "/blog/index/" user)))
+			     (js-link posts-link "div#blog")
+			     (js-link "/blog/chat/" "div#chat" chat-loop-init)
+			     (js-link indexes-link "div#index")
+			     (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
+
+			   (ps:chain ($ "div#notify") 
+				     (html (concatenate 'string "Post Failure!")))))))
+
+		  (defpostfn update-post (blog post edit)
+		    ((session-id title text id)
+		     (ps:create "session-id" session-id
+				"title" title
+				"post" text
+				"post-id" id))
+		    ((data textstatus qxhr)
+		     (let ((status (ps:getprop data 'status)))
+		       (if (equal status "success")
+			   (let* ((most-recent-post (ps:getprop data 'post-id))
+				  (user (ps:getprop data 'user))
+				  (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
 				  (indexes-link (concatenate 'string "/blog/index/" user)))
 			     (js-link posts-link "div#blog")
 			     (js-link "/blog/chat/" "div#chat" chat-loop-init)
@@ -263,6 +277,55 @@
 		       (val))))
 		    (ps:chain ($ "input#message") (val "")))))))
 
+(defun top-bar (stream)
+  (cl-who:with-html-output (stream)
+    (:div 
+     :class "topbar"
+     (:div 
+      :class "fill"
+      (:div
+       :class "container"
+       (:a :class "brand" :href "/blog/register" "Register For Multiblog")
+       (:ul 
+	:class "nav"
+	(:li :class "active" (:a :href "/blog/main" "Home"))
+	(:li (:a :href "#" "About"))
+	(:li (:a :href "/blog/main/jons" "Contact")))
+       (:form 
+	:action "" :class "pull-right"
+	(:input :class "input-small" :type "text" :placeholder "Username")
+	(:input :class "input-small" :type "password" :placeholder "Password")
+	(:button :class "btn" :type "submit" "Sign In")))))))
+
+(defhandler (blog get ("main")) (:|html|)
+  (let* ((users (with-recursive-connection ()
+		  (redis:red-smembers *users*)))
+	 (user-names (with-recursive-connection ()
+		       (redis:with-pipelining 
+			 (dolist (user users)
+			   (hgetredis user "display-name" *settings-ns*)))))
+	 (titles (with-recursive-connection ()
+		   (redis:with-pipelining 
+		     (dolist (user users)
+		       (hgetredis user "title" *settings-ns*)))))
+	 (html (cl-who:with-html-output-to-string (var)
+		 (:html (:head (:title "Welcome to Multiblog")
+			       (:link :rel "stylesheet" :href "/bootstrap.css")
+			       (:link :rel "stylesheet" :href "/styles.css"))
+			(:body 
+			 (top-bar var)
+			 :br
+			 (:div :class "container"
+			       (:h1 "Multiblog:")
+			       (:h2 "Swansong of the internet")
+			       :br
+			       (:h3 "Blogroll:")
+			       (map nil (lambda (user name title)
+					  (cl-who:htm (:h4 (:a :href (format nil "/blog/main/~a" user) (cl-who:str (format nil "~a: ~a" name title)))) :br :br))
+				    users user-names titles)))))))
+		     
+    (reply html)))
+
 (defhandler (blog get ("main" author)) (:|html|)
   (setf author (string-downcase author))
   (let ((properties (hmgetredis author *settings-ns*)))
@@ -335,10 +398,6 @@
 
 
 (defhandler (blog post ("post" "new")) (:|content| "application/json")
-  #|(let* ((q (parse-query *query*))
-  (session-id (second (assoc "session-id" q :test #'string=)))
-  (title (second (assoc "title" q :test #'string=)))
-  (post (second (assoc "post" q :test #'string=))))|#
     (bind-query () ((session-id "session-id")
 		 (title "title")
 		 (post "post"))
@@ -351,11 +410,80 @@
 	  (reply-status "failure" "user" "" "postId" "")))))
 
 (defhandler (blog get ("post" "edit")) (:|html|)
-  (reply (cl-who:with-html-output-to-string (var))))
+  (bind-query ()
+      ((session-id "session-id"))
+    (let ((user (check-login session-id)))
+      (if user
+	  (with-recursive-connection ()
+	    (let ((post-ids (lrangeredis user *pst-idx* 0 -1)))
+	      (let ((post-titles (redis:with-pipelining 
+				   (dolist (id post-ids)
+				     (hgetredis id "title" *pst-ns*)))))
+		(let ((output-string (cl-who:with-html-output-to-string (var)
+					     (:ul 
+					      (map nil (lambda (id title) 
+							 (clickable-li var title
+								       (format nil "/blog/post/edit/~a" id)
+								       "div#blog"
+								       '(lambda ()) 
+								       '(ps:create
+									 :session-id (ps:chain ($ "input#session-id") (val)))))
+						   post-ids post-titles)))))
+		  (reply output-string)))))
+	  (reply "error")))))
 
-(defhandler (blog post ("post" "edit")) (:|content| "application/json"))
+(defhandler (blog get ("post" "edit" post-id)) (:|html|)
+  (bind-query ()
+      ((session-id "session-id"))
+    (let ((user (check-login session-id)))
+      (if (and user (sismember user *pst-dict* post-id))
+	  (let ((post (hmgetredis post-id *pst-ns*)))
+	    (destructure-props ((title "title")
+				(body "body"))
+		post
+	      (format t "~s~%" body)
+	      (reply (cl-who:with-html-output-to-string (var)
+		       (:html (:body
+			       (:B "Not Much Here")		   
+			       :br
+			       "Title"
+			       (:input :type "text" :name "title" :id "title" :value (cl-who:str title))
+			       :br
+			       "Text"
+			       :br
+			       (:textarea :row "6" :cols "60" :name "post-text" :id "post-text" (cl-who:str body))
+			       
+			       :br
+			       (:input :type "submit" :value "Submit" :onclick
+				       (ps:ps-inline 
+					(update-post (ps:chain ($ "input#session-id")
+							       (val))
+						     (ps:chain ($ "input#title")
+							       (val))
+						     (ps:chain ($ "textarea#post-text")
+							       (val))
+						     (ps:chain ($ "input#post-id")
+							       (val)))))
+			       (:input :type "hidden" :name "post-id" :id "post-id" :value (cl-who:str post-id))))))))
+	  (reply "error")))))
 
-
+(defhandler (blog post ("post" "edit")) (:|content| "application/json")
+  (bind-query () ((session-id "session-id")
+		  (title "title")
+		  (post "post")
+		  (post-id "post-id"))
+    (let ((user (check-login session-id)))
+      (if (and 
+	   (and user title post post-id)
+	   (sismember user *pst-dict* post-id)
+	   (has-textp title)
+	   (has-textp post))
+	  (progn
+	    (update-post-entry post-id title user post)
+	    (reply-status "success" 
+			  "user" user
+			  "postId" post-id))
+	  (reply-status "failure" "user" "" "postId" "")))))
 
 (defhandler (blog get ("friend-feed")) (:|html|)
   (bind-query () 
@@ -371,8 +499,8 @@
 	  (with-recursive-connection ()
 	    (let* ((paths (lrangeredis user *mailbox-ns* start end))
 		   (titles (mapcar #'first (redis:with-pipelining 
-					     (dolist (path paths)
-					       (redis:red-hmget (concatenate 'string *pst-ns* ":" path) "title"))))))
+							   (dolist (path paths)
+							     (redis:red-hmget (concatenate 'string *pst-ns* ":" path) "title"))))))
 	      (reply (cl-who:with-html-output-to-string (var)
 		       (when (>= start 20) 
 			 (cl-who:htm (named-link var "Newer" "/blog/friend-feed" "div#blog"
@@ -395,9 +523,7 @@
 	  (reply "")))))
 
 (defhandler (blog get ("settings")) (:|html|)
-  #|(let* ((q (parse-query *query*))
-  (session-id (second (assoc "session-id" q :test #'string=))))|#
-  (bind-query () ((session-id "session-id"))
+   (bind-query () ((session-id "session-id"))
     (let ((user (check-login session-id)))
       (if user
 	  (let* ((settings (hmgetredis user *settings-ns*)))
@@ -458,6 +584,19 @@
 				:br
 				(:input :type "text" :name "user")
 				:br
+				"E-mail"
+				:br
+				(:input :type "text" :name "e-mail")
+				:br
+				(:input :type "submit" :value "Register")))))))
+
+(defhandler (blog get ("register" token)) (:|html|)
+  (let ((user (getredis token *registration-tokens*)))
+    (if user
+	(reply (cl-who:with-html-output-to-string (var)
+		 (:html 
+		  (:body (:h1 (cl-who:str (concatenate 'string "Click Here to Complete Registration as" user)))
+			 (:form :action "/blog/register/complete" :method "POST"
 				"Password"
 				:br
 				(:input :type "password" :name "password")
@@ -466,43 +605,62 @@
 				:br
 				(:input :type "password" :name "password2")
 				:br
-				"E-mail"
+				"Title"
 				:br
-				(:input :type "text" :name "e-mail")
+				(:input :type "text" :name "title" :value "Your Title Here")
 				:br
-				(:input :type "submit" :value "Register")))))))
+				"Subtitle"
+				:br
+				(:input :type "text" :name "subtitle" :value "Your Subtitle Here")
+				:br
+				(:input :type "hidden" :name "user" :value (cl-who:str user))
+				(:input :type "hidden" :name "token" :value (cl-who:str token))
+				(:input :type "submit" :value "Register"))))))
+	(reply "error"))))
+
+(defhandler (blog post ("register" "complete")) (:|content| "application/json")
+  (bind-query () ((user "user")
+		  (token "token")
+		  (password "password")
+		  (password2 "password2")
+		  (title "title")
+		  (subtitle "subtitle"))
+    (when (and (equalp (getredis token *registration-tokens*) user)
+	       (string= password password2))
+      (with-recursive-connection ()
+	(redis:red-sadd *users* user)
+	(add-password user password)
+	(hmsetredis user *settings-ns*
+		    "title" title
+		    "subtitle" subtitle "display-name" user))
+      (reply (format nil "/blog/main/~a" user) :|redirect|))))
+      
 
 
-
-(defhandler (blog post ("register")) (:|content| "application/json")
-  #|(let*  ((q (parse-query *query*))
-  (e-mail (second (assoc "e-mail" q :test #'string=)))
-  (user (string-downcase (cl-who:escape-string-iso-8859-1 (second (assoc "user" q :test #'string=)))))
-  (password (second (assoc "password" q :test #'string=)))
-  (password2 (second (assoc "password2" q :test #'string=))))|#
+(defhandler (blog post ("register")) (:|html|)
   (bind-query () ((e-mail "e-mail")
-	       (user "user")
-	       (password "password")
-	       (password2 "password2"))
+		  (user "user"))
     (setf user (string-downcase (cl-who:escape-string-iso-8859-1 user)))
-
     (cond 
       ((or (getredis user *password-ns*)
 	   (< (length user) 3))
        (reply (cl-who:with-html-output-to-string (var)
 		(:html (:body (:B "Name already taken or name must be at least 3 characters")
 			      :br (:b (:a :href "/blog/register" "Try Again")))))))
-      ((string= password password2)
-       (with-recursive-connection ()
-			  (redis:red-sadd *users* user)
-			  (add-password user password)
-			  (hmsetredis user *settings-ns*
-				      "title" "Your Title Here"
-				      "subtitle" "Go To Settings to Change Title" "display-name" user))
-       (reply (format nil "/blog/main/~a" user) :|redirect|))
-      (T (reply (cl-who:with-html-output-to-string (var)
-		  (:html (:body (:B "Passwords do not match")
-				:br (:b (:a :href "/blog/register" "Try Again"))))))))))
+      ((and e-mail user)
+       (let ((token (uuid-string)))
+	 (setf (getredis token  *registration-tokens*) user)
+	 #|(cl-sendmail:with-email (mailstream e-mail :subject "Your Registration")
+	     (cl-who:with-html-output (mailstream)
+	       (:a :href  (format nil "http://~a/blog/register/~a" *domain-root* token) "Complete Registration")))|#
+	 
+	 (let* ((link (format nil "http://~a/blog/register/~a" *domain-root* token)) ;;until i have a server with sendmail set up properly.
+		(body (cl-who:with-html-output-to-string (mailstream)
+			(cl-who:htm
+			 (:html 
+			  (:body
+			   (:a :href link  "Complete Registration")))))))
+	 (reply body)))))))
 
 (defhandler (blog get ("login")) (:|html|)
   (reply (cl-who:with-html-output-to-string (stream)
@@ -550,8 +708,6 @@
 	(if user
 	    (reply-status "success" "user" user)
 	    (reply-status "failure" "user" ""))))))
-
-
 
 (let ((chat-reply-table (make-hash-table :test  #'equalp :synchronized t))
       (lock (bt:make-lock))
@@ -756,7 +912,7 @@
 				   (let ((uuid (uuid-string))) 
 				     (redis:red-set "SITE:COOKIE" uuid)
 				   uuid))))
-    (unless (redis:red-get *post-counter*) (redis:red-set *post-counter* 0)))
+    (unless (redis:red-get *post-counter*) (redis:red-set *post-counter* 1)))
   (init-server-connection)
   (init-reply-chat-thread)
   (generate-appmods))

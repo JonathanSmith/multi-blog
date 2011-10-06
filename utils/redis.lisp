@@ -3,6 +3,14 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
   (defvar *redis-connection-queue* (sb-concurrency::make-queue))
+
+  (defun safe-ping (&optional (connection redis::*connection*))
+    (let ((redis::*connection* connection))
+      (handler-case (redis:red-ping)
+	((or redis:redis-connection-error redis::redis-bad-reply) (err)
+	  (format t "~s~%" err)
+	  nil))))
+
   (defmacro with-recursive-connection ((&key (host #(127 0 0 1))
 					     (port 6379))
 				       &body body)
@@ -14,21 +22,21 @@
 
     (let ((connection (gensym)))
       `(if (redis::connected-p)
-	     (progn
-	       ;(format t "recursive: ~s~%" redis::*connection*)
-	       ,@body)
-	     (let ((,connection (sb-concurrency:dequeue blog::*redis-connection-queue*)))
-	       (if (and ,connection (redis::open-connection-p ,connection))
-		   (let ((redis::*connection* ,connection))
-		;     (format t "reuse:~s~%"  redis::*connection*)
-		     (unwind-protect (progn ,@body)
-		       (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*)))
-		   (let ((redis::*connection* (make-instance 'redis::redis-connection
-							     :host ,host
-							     :port ,port)))
-		 ;    (format t "new:~s~%" redis::*connection*)
-		     (unwind-protect (progn ,@body)
-		       (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*))))))))
+	   (progn
+	     (format t "recursive: ~s~%" redis::*connection*)
+	     ,@body)
+	   (let ((,connection (sb-concurrency:dequeue blog::*redis-connection-queue*)))
+	     (if (and ,connection (redis::open-connection-p ,connection) (safe-ping ,connection))
+		 (let ((redis::*connection* ,connection))
+		   (format t "reuse:~s~%" redis::*connection*)
+		   (unwind-protect (progn ,@body)
+		     (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*)))
+		 (let ((redis::*connection* (make-instance 'redis::redis-connection
+							   :host ,host
+							   :port ,port)))
+		   (format t "new:~s~%" redis::*connection*)
+		   (unwind-protect (progn ,@body)
+		     (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*))))))))
 
 (defun close-all-redis-connections ()
     (do  ((connection (sb-concurrency::dequeue *redis-connection-queue*) (sb-concurrency:dequeue *redis-connection-queue*)))
@@ -53,12 +61,10 @@
     (if secs
 	(with-recursive-connection ()
 	  (first (redis:with-pipelining 
-		   (redis:red-set predicated val)
-		   (redis:red-expire predicated secs))))
+				     (redis:red-set predicated val)
+				     (redis:red-expire predicated secs))))
 	(with-recursive-connection ()
 	  (redis:red-set predicated val)))))
-
-
 
 (defun getredis (key ns)
   (let ((predicated (predicate key ns)))
@@ -85,6 +91,16 @@
     (with-recursive-connection ()
       (apply #'redis:red-hmset predicated vals))))
  
+
+(defun saddredis (key ns val)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (redis:red-sadd predicated val))))
+
+(defun sismember (key ns val)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (redis:red-sismember predicated val))))
 
 (defun lpushredis (key ns val)
   (let ((predicated (predicate key ns)))
