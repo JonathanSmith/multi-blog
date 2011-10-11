@@ -614,14 +614,14 @@
 			   (when (and path title)
 			     (cl-who:htm 
 			      (:h2 (named-link var title (format nil "/blog/viewpost/~a" path) "div#blog"))
-			      (:a :href (format nil "/blog/main/~a" author) (cl-who:str author))
 			      (:p
 			       (cl-who:str 
 				(if (> (length body) 140)
 				    (concatenate 'string (subseq body 0 140) "...")
 				    body)))
-			      :hr
-			      :br))))
+			      (:a :href (format nil "/blog/main/~a" author) (cl-who:str author))
+			      :br
+			      :hr))))
 		       paths post-infos))))))
 	  (reply "")))))
 
