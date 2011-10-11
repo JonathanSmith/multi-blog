@@ -23,18 +23,18 @@
     (let ((connection (gensym)))
       `(if (redis::connected-p)
 	   (progn
-	     (format t "recursive: ~s~%" redis::*connection*)
+	    ; (format t "recursive: ~s~%" redis::*connection*)
 	     ,@body)
 	   (let ((,connection (sb-concurrency:dequeue blog::*redis-connection-queue*)))
 	     (if (and ,connection (redis::open-connection-p ,connection) (safe-ping ,connection))
 		 (let ((redis::*connection* ,connection))
-		   (format t "reuse:~s~%" redis::*connection*)
+		  ; (format t "reuse:~s~%" redis::*connection*)
 		   (unwind-protect (progn ,@body)
 		     (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*)))
 		 (let ((redis::*connection* (make-instance 'redis::redis-connection
 							   :host ,host
 							   :port ,port)))
-		   (format t "new:~s~%" redis::*connection*)
+		  ; (format t "new:~s~%" redis::*connection*)
 		   (unwind-protect (progn ,@body)
 		     (sb-concurrency::enqueue redis::*connection* blog::*redis-connection-queue*))))))))
 
@@ -96,6 +96,26 @@
   (let ((predicated (predicate key ns)))
     (with-recursive-connection ()
       (redis:red-sadd predicated val))))
+
+(defun sremoveredis (key ns val)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (redis:red-srem predicated val))))
+
+(defun lremredis (key ns val)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (redis:red-lrem predicated 1 val))))
+
+(defun hmdelredis (key ns &rest fields)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (apply #'redis:red-hdel predicated fields))))
+
+(defun delredis (key ns)
+  (let ((predicated (predicate key ns)))
+    (with-recursive-connection ()
+      (redis:red-del predicated))))
 
 (defun sismember (key ns val)
   (let ((predicated (predicate key ns)))

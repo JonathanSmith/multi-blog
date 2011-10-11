@@ -57,6 +57,13 @@
 				     (with-transaction 
 				       (redis:red-get *post-counter*)
 				       (redis:red-incr *post-counter*))))))))
+    (unless post-id
+      (with-recursive-connection ()
+	(setf post-id 
+	      (first (fourth (redis:with-pipelining 
+			       (with-transaction 
+				 (redis:red-get *post-counter*)
+				 (redis:red-incr *post-counter*))))))))
     (with-recursive-connection ()
       (redis:with-pipelining
 	(saddredis author *pst-dict* post-id)
@@ -68,6 +75,15 @@
 		    "body" lines))
       (add-post-to-follower-mailboxes author post-id))
     post-id))
+
+(defun remove-post-entry (author post-id)
+  (with-recursive-connection ()
+    (sremoveredis author *pst-dict* post-id)
+    (lremredis author *pst-idx* post-id)
+    (delredis post-id *pst-ns*)
+    (remove-post-from-follower-mailboxes author post-id)))
+    
+
 
 (defun update-post-entry (post-id title author lines)
   (let* ((time (get-universal-time)))
@@ -83,6 +99,13 @@
       (redis:with-pipelining 
 	(dolist (mailbox mailboxes)
 	  (redis:red-lpush mailbox post-id))))))
+
+(defun remove-post-from-follower-mailboxes (author post-id)
+  (with-recursive-connection ()
+    (let ((mailboxes (redis:red-smembers (predicate author *follower-mailboxes-ns*))))
+      (redis:with-pipelining 
+	(dolist (mailbox mailboxes)
+	  (redis:red-lrem mailbox 1 post-id))))))
 
 (defun most-recent-post (author)
   (first (lrangeredis author *pst-idx* 0 0)))
