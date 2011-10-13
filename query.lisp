@@ -8,12 +8,17 @@
 (defvar *pst-idx* "PSTDX")
 (defvar *pst-dict* "PSTDCT")
 (defvar *login-cookie-ns* "LC")
-(defvar *chat-ns* "CHAT")
+
 (defvar *friends-ns* "FRND")
 (defvar *followers-ns* "FOLW")
 (defvar *mailbox-ns* "MLBX")
 (defvar *follower-mailboxes-ns* "FMBX")
 (defvar *post-counter* "PST-CNT")
+(defvar *chat-counter* "CHT-CNT")
+(defvar *chat-ns* "CHAT")
+(defvar *chat-info* "CHAT-INFO")
+(defvar *chats-owned* "CHTDCT")
+(defvar *chat-subs* "CHTIDX")
 (defvar *registration-tokens* "REGTKN")
 
 (defvar *expire-days* 1)
@@ -75,6 +80,54 @@
 		    "body" lines))
       (add-post-to-follower-mailboxes author post-id))
     post-id))
+
+(defun generate-chat-entry (title owner)
+  (let* ((time (get-universal-time))
+	 (chat-id (with-recursive-connection ()
+		    (first (fourth (redis:with-pipelining 
+				     (with-transaction 
+				       (redis:red-get *chat-counter*)
+				       (redis:red-incr *chat-counter*))))))))
+    (unless chat-id
+      (with-recursive-connection ()
+	(setf chat-id 
+	      (first (fourth (redis:with-pipelining 
+			       (with-transaction 
+				 (redis:red-get *chat-counter*)
+				 (redis:red-incr *chat-counter*))))))))
+    (with-recursive-connection ()
+      (redis:with-pipelining
+	(lpushredis owner *chat-subs* chat-id)
+	(lpushredis owner *chats-owned* chat-id)
+	(hmsetredis chat-id *chat-info* 
+		    "title" title
+		    "owner" owner
+		    "time" time)))
+    chat-id))
+
+(defun subscribe-to-chat (user chat-id)
+  (lpushredis user *chat-subs* chat-id))
+
+(defun chat-subs (user)
+  (let ((chat-ids (lrangeredis user *chat-subs* 0 -1)))
+    (with-recursive-connection ()
+      (let ((titles (redis:with-pipelining  
+		      (map nil (lambda (chat-id) (hgetredis chat-id "title" *chat-info*)) chat-ids)))
+	    (owners (redis:with-pipelining
+		      (map nil (lambda (chat-id) (hgetredis chat-id "owner" *chat-info*)) chat-ids))))
+	(values chat-ids titles owners)))))
+
+(defun owned-chats (user)
+  (let ((chat-ids (lrangeredis user *chats-owned* 0 -1)))
+    (with-recursive-connection ()
+      (let ((titles (with-transaction
+		      (map nil (lambda (chat-id) (hgetredis chat-id "title" *chat-info*)) chat-ids))))
+	(values chat-ids titles)))))
+
+(defun chat-owner-p (user chat-id)
+  (equalp user (with-recursive-connection ()
+		 (hgetredis chat-id "owner" *chat-info*))))
+
 
 (defun remove-post-entry (author post-id)
   (with-recursive-connection ()

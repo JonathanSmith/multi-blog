@@ -1,5 +1,18 @@
 (in-package :blog)
 
+(ps:defpsmacro session-id ()
+  `(ps:chain ($ "input#session-id") (val)))
+
+(ps:defpsmacro val-of (jquery)
+  `(ps:chain ($ ,jquery) (val)))
+
+(ps:defpsmacro set-val-of (jquery value)
+  `(ps:chain ($ ,jquery) (val ,value)))
+
+(ps:defpsmacro session-obj (&rest rest)
+  `(ps:create "session-id" (session-id)
+	      ,@rest))
+
 (ps:defpsmacro js-link (link div-id &optional afterfn object)
     (let ((data (gensym)))
       `($.get ,link
