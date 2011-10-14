@@ -98,7 +98,7 @@
 	`(let* ((,rendercode ',lambdacode)
 		#|(,renderlambda ,lambdacode)|#
 		(,path ',(cons "blog" (cons "topbar" pathspec)))
-		(,topbar (make-instance 'topbar-object
+		(,topbar (make-instance 'page-object
 					:display-name ,display-name
 					:symbol ',symbol
 					:parent ',parent
@@ -160,6 +160,9 @@
 	   :type "submit"
 	   :onclick (ps:ps-inline (do-search)) 
 	   "Search"))
+
+(def-topbar (tb-logged-in-basic "Main" ("loggedin" "basic")) ()
+  ((:li (:a :href "#" :onclick (ps:ps-inline (redirect-user-page)) "My Page"))))
 
 (def-topbar (tb-not-friend "Multiblog" ("view")) ()
   ((:li (:a :href "#addfriend" 
