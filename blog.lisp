@@ -103,8 +103,7 @@
 					 #.(format nil "; expires=")
 					 (ps:chain exdate (to-u-t-c-string))
 					 ))
-				    #.(format nil "; path=/")
-				    )))
+				    "; path=/")))
 			(setf (ps:chain document cookie)
 			      (concatenate 'string c-name "=" c-val)))))
 		  
@@ -999,16 +998,24 @@
 		     (:h1 "Edit Chat Settings")
 		     :br
 		     (:input :type "text" :id "ch-name" :name "ch-name" :value title)
+		     :br
+		     (:input :type "checkbox" :id "checkbox" :name "checkbox" :value "true")
+		     :br
 		     (:input :type "submit" :onclick (ps:ps-inline* `($.post 
 								      ,(format nil "/blog/chat/edit/~a" id)
 								      (session-obj
-								       "title" (val-of "input#ch-name"))))
-								    :value "Submit"))))
+								       "title" (val-of "input#ch-name")
+								       ;"default" 
+								       ;(ps:chain ($ "input#checkbox") value)
+								       )))
+			     :value "Submit"))))
 	  (reply " ")))))
 
 (defhandler (blog post ("chat" "edit" id)) (:|content| "application/json")
   (bind-query () ((session-id "session-id")
-		  (title "title"))
+		  (title "title")
+		  (default "default"))
+    (format t "~s~%" default)
     (let ((user (check-login session-id)))
       (if (and user (chat-owner-p user id))
 	  (progn (hsetredis id "title" title *chat-info*)
