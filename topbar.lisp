@@ -115,8 +115,7 @@
 			&rest rest)
     `(def-page (,symbol ,display-name (,@pathspec) :parent ,parent :stream ,stream :after-code ,after-code) (,@args)
        (topbar-expander ,stream
-	(:a :class "brand" :href "#" :onclick 
-	    ,(if after-code `(ps:ps-inline (progn ,@after-code)) "")
+	(:a :class "brand" :href "/blog/index/"
 	    ,display-name)
 	(,@(if (eql parent :self) nil 
 	       (list 
@@ -174,7 +173,8 @@
 (def-topbar (tb-is-friend "Multiblog" ("view" "friend")) ()
   ((:li (:a :href "#defriend"
 	    :onclick
-	    (ps:ps-inline (progn (topbar-swap tb-not-friend)))
+	    (ps:ps-inline (progn (topbar-swap tb-not-friend)
+				 (remove-friend)))
 	    "Remove Friend"))))
 
 
@@ -198,8 +198,8 @@
 				 (ps:chain ($ "input#session-id")
 					   (val)))))
 	    "List"))
-   (:li (:a :href "#" "Add"))
-   (:li (:a :href "#" "Remove")))
+   #|(:li (:a :href "#" "Add"))
+   (:li (:a :href "#" "Remove"))|# )
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
   (:button :class "btn" 
 	   :type "submit"
@@ -231,8 +231,7 @@
 					     (ps:create "session-id" (ps:chain ($ "input#session-id") (val)))))
 	    "Subscribed"))
    (:li (:a :href "#new"
-	    :onclick (ps:ps-inline (js-link "/blog/chat/create/" "div#blog")) "New"))
-   (:li (:a :href "#history" :onclick (ps:ps-inline (topbar-swap tb-logged-in-chat-history)) "History" )))
+	    :onclick (ps:ps-inline (js-link "/blog/chat/create/" "div#blog")) "New")))
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
   (:button :class "btn" 
 	   :type "submit"
@@ -260,10 +259,7 @@
 	    :onclick 
 	    (ps:ps-inline 
 	     (js-link "/blog/post/edit" "div#blog" (lambda ())
-		      (ps:create :session-id (ps:chain ($ "input#session-id") (val))))) "Edit"))
-   (:li (:a :href "#Delete" :onclick (ps:ps-inline 
-				      (js-link "/blog/post/remove" "div#blog" (lambda ())
-					       (ps:create :session-id (ps:chain ($ "input#session-id") (val))))) "Remove")))
+		      (ps:create :session-id (ps:chain ($ "input#session-id") (val))))) "Update")))
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
   (:button :class "btn" 
 	   :type "submit"

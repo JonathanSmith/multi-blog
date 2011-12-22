@@ -122,6 +122,9 @@
     (with-recursive-connection ()
       (redis:red-sismember predicated val))))
 
+(defun zscore (key ns val)
+  (with-recursive-connection () (redis:red-zscore (predicate key ns) val)))
+
 (defun lpushredis (key ns val)
   (let ((predicated (predicate key ns)))
     (with-recursive-connection ()

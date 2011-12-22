@@ -1,17 +1,11 @@
 (in-package :blog)
 
-(defvar *salt*)
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
   (defun uuid-string (&optional (uuid (uuid:make-v4-uuid)))
     (with-open-stream (s (make-string-output-stream))
       (uuid:print-bytes s uuid)
       (get-output-stream-string s)))
-
-  (defun obfuscate-password (password)
-  (let* ((salted (concatenate 'string *salt* password)))
-    (map 'string #'code-char (md5::MD5SUM-SEQUENCE salted))))
 
   (defmacro destructure-props (indicator-plist list &body body)
     (let ((gkey (gensym))
@@ -30,14 +24,7 @@
 			     indicator-plist)))
 	   ,@body))))
 
-  (defmacro bind-query (query-bind pairlist &body body)
-    (let ((q (or (first query-bind) (gensym "q"))))
-      `(let* ((,q (parse-query lisp-on-yaws::*query*)))
-	 (let ,(mapcar (lambda (pair)
-			 (let ((symbol (first pair))
-			       (string (second pair)))
-			   `(,symbol (second (assoc ,string ,q :test #'string=))))) pairlist)
-	   ,@body)))))
+  )
 
 
 (defun has-textp (string)

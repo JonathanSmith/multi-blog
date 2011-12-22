@@ -33,9 +33,16 @@
 	    body)))))
 
 (defhandler (blog get ("viewpost" postid)) (:|html|)
-  (if postid
-      (reply (generate-post-from-db postid))
-      (reply "")))
+  (bind-query () ((session-id "session-id"))
+    (if postid
+	(reply (cl-who:with-html-output-to-string (var)
+		 (cl-who:str (generate-post-from-db postid))
+		 (when (check-login session-id)
+		   (named-link var "Reply" 
+			       "/blog/post/new/"
+			       "div#blog"
+			       '(lambda ()) `(session-obj "reply-to" ,postid)))))
+	(reply ""))))
 
 (defhandler (blog get ("index" author)) (:|html|)
   (bind-query ()
@@ -65,6 +72,8 @@
 					     (ps:chain ($ "input#session-id") (val session-id))
 					     (after-login (ps:getprop data 'user))))))))
 			`(defun log-out ()
+			   ($.post "/blog/logout/" (session-obj))
+			   (ps:chain ($ "input#session-id") "")
 			   (set-cookie ,*site-cookie-name* "" 0)
 			   (ps:chain ($ "div#chat") (html ""))
 			   (init-login)
@@ -127,245 +136,279 @@
 
 (defhandler (blog get ("jslib" author)) (:|content| "application/javascript")
   (setf author (string-downcase author))
-  (reply 
-   (concatenate 'string  
-		(let ((link (format nil "/blog/viewpost/~a" (most-recent-post author))))
-		  (ps:ps* 
-		   `(defvar author ,author)
-		   `(defun get-init-post ()
-		      (js-link ,link "div#blog"))
+  (let ((chat-id (hgetredis author "default-chat" *settings-ns*)))
+    (reply 
+     (concatenate 'string  
+		  (let ((most-recent-post (most-recent-post author)))
+		    (ps:ps* 
+		     `(defvar author ,author)
+		     `(defvar *most-recent-post* ,most-recent-post) 
+		     `(defun get-init-post ()
+			(js-link (concatenate 'string "/blog/viewpost/"
+					      *most-recent-post*)
+				 "div#blog" (lambda ()) (session-obj))
+			,@(if chat-id
+			      `((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ())))
+			      nil))
 
-		   `(defun init-login ()
-		      (let ((session-id (get-cookie ,*site-cookie-name*)))
-			($.post "/blog/re-auth/" (ps:create "session-id" session-id)
-				(lambda (data textstatus qxhr)
-				  (if (equal (ps:getprop data 'status) "success")
-				      (progn
-					(ps:chain ($ "input#session-id") (val session-id))
-					(after-login (ps:getprop data 'user))))))))
-		   `(defun log-out ()
-		      (set-cookie ,*site-cookie-name* "" 0)
-		      (ps:chain ($ "div#chat") (html ""))
-		      (init-login)
-		      (set-topbar (page-path tb-logged-out)))
+		     `(defun init-login ()
+			(let ((session-id (get-cookie ,*site-cookie-name*)))
+			  ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
+				  (lambda (data textstatus qxhr)
+				    (if (equal (ps:getprop data 'status) "success")
+					(progn
+					  (ps:chain ($ "input#session-id") (val session-id))
+					  (after-login (ps:getprop data 'user))
+					  
+					  ,@(if chat-id
+						`((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ()) (session-obj)))
+						nil)))))))
+		     `(defun log-out ()
+			(set-cookie ,*site-cookie-name* "" 0)
+			(ps:chain ($ "div#chat") (html ""))
+			(init-login)
+			(get-init-post)
+			(set-topbar (page-path tb-logged-out)))
 
-		   `(defun update-index ()
-		      ($.get ,(format nil "/blog/index/~a" author)
-			     (ps:create :start 0 :end 20)
-			     (lambda (data)
-			       (ps:chain 
-				($ "div#index")
-				(html data)))))
+		     `(defun update-index ()
+			($.get ,(format nil "/blog/index/~a" author)
+			       (ps:create :start 0 :end 20)
+			       (lambda (data)
+				 (ps:chain 
+				  ($ "div#index")
+				  (html data)))))
 
-		   `(defun check-last-post ()
-		      ($.get ,(format nil "/blog/last_post/~a" author)  
-			     (ps:create)
-			     (lambda (server-id)
-			       (let ((this-id (val-of "input#latest")))
-				 (unless (equal this-id server-id)
-				   (update-index)
-				   (ps:chain ($ "input#latest") (val server-id)))))
-			     "json"))))
-		(ps:ps
-		  (defvar *chat-id* false)
-		  (defvar *chat-callback*)
-		  (defvar *show-timestamps* false)
-		  (defun create-chat ()
-		    ($.post "/blog/chat/create/" 
-			    (session-obj
-			     "chat-name" (val-of "input#chat-name"))
-			    (lambda (data textstatus qxhr)
-			      (if (equal (ps:getprop data 'status) "success")
-				  (let ((chat-link (concatenate 'string "/blog/chat/i/" (ps:getprop data "chat-id"))))
-				    (js-link chat-link "div#chat"))
-				  (alert "failure")))))
-		  (defun manage-timestamps ()
-		    (if *show-timestamps*
-			(ps:chain 
-			 ($ "span.timestamp") (show))
-			(ps:chain ($ "span.timestamp")
-				  (hide))))
+		    #| `(defun check-last-post ()
+			($.get ,(format nil "/blog/last_post/~a" author)  
+			       (ps:create)
+			       (lambda (server-id)
+				 (let ((this-id (val-of "input#latest")))
+				   (unless (equal this-id server-id)
+				     (update-index)
+				     (ps:chain ($ "input#latest") (val server-id)))))
+			       "json"))|#
+))
+		  (ps:ps
+		    (defvar *chat-id* false)
+		    (defvar *chat-callback*)
+		    (defvar *show-timestamps* false)
+		    (defun create-chat ()
+		      ($.post "/blog/chat/create/" 
+			      (session-obj
+			       "chat-name" (val-of "input#chat-name"))
+			      (lambda (data textstatus qxhr)
+				(if (equal (ps:getprop data 'status) "success")
+				    (let ((chat-link (concatenate 'string "/blog/chat/i/" (ps:getprop data "chat-id"))))
+				      (js-link chat-link "div#chat"))
+				    (alert "failure")))))
+		    (defun manage-timestamps ()
+		      (if *show-timestamps*
+			  (ps:chain 
+			   ($ "span.timestamp") (show))
+			  (ps:chain ($ "span.timestamp")
+				    (hide))))
 
-		  (defun show-timestamps ()
-		    (setf *show-timestamps* true)
-		    (manage-timestamps))
+		    (defun show-timestamps ()
+		      (setf *show-timestamps* true)
+		      (manage-timestamps))
 
-		  (defun hide-timestamps ()
-		    (setf *show-timestamps* false)
-		    (manage-timestamps))
+		    (defun hide-timestamps ()
+		      (setf *show-timestamps* false)
+		      (manage-timestamps))
 		    
-		  (defun after-login (user)
-		    (if (equal user author)
-			(topbar-swap tb-logged-in)
-			(set-topbar "/blog/topbar/other")))
+		    (defun after-login (user)
+		      (if (equal user author)
+			  (progn (topbar-swap tb-logged-in)
+				 (ps:chain ($ "div#index") (html ""))
+				 (js-link "/blog/friend-feed" "div#blog" (lambda ()) (session-obj
+										      "start" 0
+										      "end" 20)))
+			  (progn (set-topbar "/blog/topbar/other")
+				 (js-link (concatenate 'string "/blog/viewpost/"
+						       *most-recent-post*)
+					  "div#blog" (lambda ()) (session-obj)))))
 		    
-		  (defun set-topbar (path)
-		    ($.get path
-			   (session-obj
-			    "author" author)
-			   (lambda (topbarhtml)
-			     (ps:chain
-			      ($ "div#topbar")
-			      (html  topbarhtml)))))
+		    (defun set-topbar (path)
+		      ($.get path
+			     (session-obj
+			      "author" author)
+			     (lambda (topbarhtml)
+			       (ps:chain
+				($ "div#topbar")
+				(html  topbarhtml)))))
+		    (defun set-cookie (c-name value exdays)
+		      (let ((exdate (ps:new (-date))))
+			(ps:chain exdate (set-date (+ (ps:chain exdate (get-Date)) exdays)))
+			(let ((c-val (concatenate 
+				      'string
+				      (escape value)
+				      (if (not exdays)
+					  ""
+					  (concatenate 
+					   'string
+					   #.(format nil "; expires=")
+					   (ps:chain exdate (to-u-t-c-string))
+					   ))
+				      "; path=/")))
+			  (setf (ps:chain document cookie)
+				(concatenate 'string c-name "=" c-val)))))
+		  
 
-		  (defun set-cookie (c-name value exdays)
-		    (let ((exdate (ps:new (-date))))
-		      (ps:chain exdate (set-date (+ (ps:chain exdate (get-Date)) exdays)))
-		      (let ((c-val (concatenate 
-				    'string
-				    (escape value)
-				    (if (not exdays)
-					""
-					(concatenate 
-					 'string
-					 #.(format nil ";~%expires=")
-					 (ps:chain exdate (to-u-t-c-string)))))))
-			(setf (ps:chain document cookie)
-			      (concatenate 'string c-name "=" c-val)))))
-
-		  (defun get-cookie (cname)
-		    (let ((arr-cookies  (ps:chain document cookie (split ";"))))
-		      (let (eqlidx x y r) 
-			(do* ((i 0 (+ i 1))
-			      (current (ps:getprop arr-cookies i) (ps:getprop arr-cookies i)))
-			     ((or (equal r cname) (>= i (ps:chain arr-cookies length)))
-			      (if (equal r cname)  y  y))
-			  (setf eqlidx (ps:chain current (index-of "=")))
-			  (setf x (ps:chain current (substr 0 eqlidx)))
-			  (setf y  (ps:chain current (substr (+ eqlidx 1))))
-			  (setf r (ps:chain x (replace (ps:regex "/^\s|\s|$/g") "")))))))
+		    (defun get-cookie (cname)
+		      (let ((arr-cookies  (ps:chain document cookie (split ";"))))
+			(let (eqlidx x y r) 
+			  (do* ((i 0 (+ i 1))
+				(current (ps:getprop arr-cookies i) (ps:getprop arr-cookies i)))
+			       ((or (equal r cname) (>= i (ps:chain arr-cookies length)))
+				(if (equal r cname)  y  y))
+			    (setf eqlidx (ps:chain current (index-of "=")))
+			    (setf x (ps:chain current (substr 0 eqlidx)))
+			    (setf y  (ps:chain current (substr (+ eqlidx 1))))
+			    (setf r (ps:chain x (replace (ps:regex "/^\s|\s|$/g") "")))))))
 				
-		  (defun poll-index ()
-		    (ps:var timer (set-interval "checkLastPost()" 30000)))
+		    #|(defun poll-index ()
+		      (ps:var timer (set-interval "checkLastPost()" 30000)))|#
 
-		  (defpostfn make-post (blog post new)
-		    ((title text)
-		     (session-obj
-				"title" title
-				"post" text))
-		    ((data textstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (if (equal status "success")
-			   (let* ((most-recent-post (ps:getprop data 'post-id))
-				  (user (ps:getprop data 'user))
-				  (posts-link (concatenate 'string
-							   "/blog/viewpost/" most-recent-post))
-				  (indexes-link (concatenate 'string "/blog/index/" user)))
-			     (js-link posts-link "div#blog")
-			     ;(js-link "/blog/chat/" "div#chat" chat-loop-init)
+		    (defpostfn make-post (blog post new)
+		      ((title text &optional (reply-to false))
+		       (if reply-to
+			   (session-obj
+			    "title" title
+			    "post" text
+			    "reply-to" reply-to)
+			   (session-obj
+			    "title" title
+			    "post" text)))
+		      ((data textstatus qxhr)
+		       (let ((status (ps:getprop data 'status)))
+			 (if (equal status "success")
+			     (let* ((most-recent-post (ps:getprop data 'post-id))
+				    (user (ps:getprop data 'user))
+				    (posts-link (concatenate 'string
+							     "/blog/viewpost/" most-recent-post))
+				    (indexes-link (concatenate 'string "/blog/index/" user)))
+			       (js-link posts-link "div#blog" (lambda ()) (session-obj))
+					;(js-link "/blog/chat/" "div#chat" chat-loop-init)
 			     
-			     (js-link indexes-link "div#index")
-			     (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
+			       (js-link indexes-link "div#index")
+			       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
-			   (ps:chain ($ "div#notify") 
-				     (html (concatenate 'string "Post Failure!")))))))
+			     (ps:chain ($ "div#notify") 
+				       (html (concatenate 'string "Post Failure!")))))))
 
-		  (defpostfn update-post (blog post edit)
-		    ((title text id)
-		     (session-obj
-		      "title" title
-		      "post" text
-		      "post-id" id))
-		    ((data textstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (if (equal status "success")
-			   (let* ((most-recent-post (ps:getprop data 'post-id))
-				  (user (ps:getprop data 'user))
-				  (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
-				  (indexes-link (concatenate 'string "/blog/index/" user)))
-			     (js-link posts-link "div#blog")
-			     ;(js-link "/blog/chat/" "div#chat" chat-loop-init)
-			     (js-link indexes-link "div#index")
-			     (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
+		    (defpostfn update-post (blog post edit)
+		      ((title text id)
+		       (session-obj
+			"title" title
+			"post" text
+			"post-id" id))
+		      ((data textstatus qxhr)
+		       (let ((status (ps:getprop data 'status)))
+			 (if (equal status "success")
+			     (let* ((most-recent-post (ps:getprop data 'post-id))
+				    (user (ps:getprop data 'user))
+				    (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
+				    (indexes-link (concatenate 'string "/blog/index/" user)))
+			       (js-link posts-link "div#blog" (lambda ()) (session-obj))
+					;(js-link "/blog/chat/" "div#chat" chat-loop-init)
+			       (js-link indexes-link "div#index")
+			       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
-			   (ps:chain ($ "div#notify") 
-				     (html (concatenate 'string "Post Failure!")))))))
+			     (ps:chain ($ "div#notify") 
+				       (html (concatenate 'string "Post Failure!")))))))
 
-		  (defpostfn update-settings (blog settings)
-		    ((object) object)
-		    ((data texstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (when (eql status "success")
-			 (progn
-			   (ps:chain ($ "h2#title") (html (ps:getprop object "title")))
-			   (ps:chain ($ "p#subtitle") (html (ps:getprop object "subtitle"))))))))
+		    (defpostfn update-settings (blog settings)
+		      ((object) object)
+		      ((data texstatus qxhr)
+		       (let ((status (ps:getprop data 'status)))
+			 (when (eql status "success")
+			   (progn
+			     (ps:chain ($ "h2#title") (html (ps:getprop data "title")))
+			     (ps:chain ($ "p#subtitle") (html (ps:getprop data "subtitle"))))))))
 
-		  (defpostfn login (blog login)
-		    ((user password) 
-		     (ps:create "user" user "password" password))
-		    ((data texstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (when (eql status "success")
-			 (let ((expires (ps:getprop data 'expires))
-			       (cookie-id (ps:getprop data 'cookie-id))
-			       (session-id (ps:getprop data 'session-id)))
-			   (ps:chain ($ "input#session-id") (val session-id))
-			   (set-cookie cookie-id session-id expires)
-			   (after-login user))))))
+		    (defpostfn login (blog login)
+		      ((user password) 
+		       (ps:create "user" user "password" password))
+		      ((data texstatus qxhr)
+		       (let ((status (ps:getprop data 'status)))
+			 (when (eql status "success")
+			   (let ((expires (ps:getprop data 'expires))
+				 (cookie-id (ps:getprop data 'cookie-id))
+				 (session-id (ps:getprop data 'session-id)))
+			     (ps:chain ($ "input#session-id") (val session-id))
+			     (set-cookie cookie-id session-id expires)
+			     (after-login user))))))
 
-		  (defpostfn add-friend (blog friends json add)
-		    (()
-		     (session-obj
-		      "friends" author))
-		    ((data texstatus qxhr)))
+		    (defpostfn add-friend (blog friends json add)
+		      (()
+		       (session-obj
+			"friends" author))
+		      ((data texstatus qxhr)))
+		  
+		    (defpostfn remove-friend (blog friends json remove)
+		      (()
+		       (session-obj
+			"friends" author))
+		      ((data texstatus qxhr)))
 
-		  (defpostfn delete-post (blog post remove)
-		    ((post-id)
-		     (session-obj
-		      "post-id" post-id))
-		    ((data texstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (when (eql status "success")
-			 (let ((post-id (ps:getprop data 'post-id)))
-			   (ps:chain ($ "div#blog") (html (concatenate 'string "Post " post-id " Deleted!"))))))))
 
-		  (defun chat-loop-init ()
-		    ;;need a better way to do this.
-		    ;;so that I only need to maintain 1 open connection
-		    ;;per chat.
-		    (when *chat-callback*
-		      (ps:chain *chat-callback* (abort)))
-		    ($.get (concatenate 'string "/blog/chat/instant/" *chat-id*)
-			   (session-obj)
-			   (lambda (data)
-			     (ps:chain ($ "div#chatwindow") (html data))
-			     (manage-timestamps)
+		    (defpostfn delete-post (blog post remove)
+		      ((post-id)
+		       (session-obj
+			"post-id" post-id))
+		      ((data texstatus qxhr)
+		       (let ((status (ps:getprop data 'status)))
+			 (when (eql status "success")
+			   (let ((post-id (ps:getprop data 'post-id)))
+			     (ps:chain ($ "div#blog") (html (concatenate 'string "Post " post-id " Deleted!"))))))))
+
+		    (defun chat-loop-init ()
+		      ;;need a better way to do this.
+		      ;;so that I only need to maintain 1 open connection
+		      ;;per chat.
+		      (when *chat-callback*
+			(ps:chain *chat-callback* (abort)))
+		      ($.get (concatenate 'string "/blog/chat/instant/" *chat-id*)
+			     (session-obj)
+			     (lambda (data)
+			       (ps:chain ($ "div#chatwindow") (html data))
+			       (manage-timestamps)
 			       (chat-loop))))
 
-		  (defun chat-loop ()
-		    (setf *chat-callback* ($.get (concatenate 'string "/blog/chat/wait/" *chat-id*)
-						 (session-obj)
-						 (lambda (data)
-						   (ps:chain ($ "div#chatwindow") (html data))
-						   (manage-timestamps)
-						   (chat-loop)))))
+		    (defun chat-loop ()
+		      (setf *chat-callback* ($.get (concatenate 'string "/blog/chat/wait/" *chat-id*)
+						   (session-obj)
+						   (lambda (data)
+						     (ps:chain ($ "div#chatwindow") (html data))
+						     (manage-timestamps)
+						     (chat-loop)))))
 			       
-		  (defun chat-history (start end)
-		    ($.get (concatenate 'string "/blog/chat/history/" *chat-id*)
-			   (session-obj
-			    :start start
-			    :end end)
-			   (lambda (data)
-			     (let ((status (ps:getprop data 'status)))
-			       (if (eql status "success")
-				   (let ((result (ps:getprop data 'result)))
-				     (ps:chain ($ "div#blog")
-					       (html result))
-				     (manage-timestamps)
-				     ))))))
+		    (defun chat-history (chat-id start end)
+		      ($.get (concatenate 'string "/blog/chat/history/" chat-id)
+			     (session-obj
+			      :start start
+			      :end end)
+			     (lambda (data)
+			       (let ((status (ps:getprop data 'status)))
+				 (if (eql status "success")
+				     (let ((result (ps:getprop data 'result)))
+				       (ps:chain ($ "div#blog")
+						 (html result))
+				       (manage-timestamps)
+				       ))))))
 
-		  (defun key-stroke-update (event)
-		    (if (or (= (ps:chain event char-code) 13)
-			    (= (ps:chain event key-code) 13))
-			(post-chat-msg)))
+		    (defun key-stroke-update (event)
+		      (if (or (= (ps:chain event char-code) 13)
+			      (= (ps:chain event key-code) 13))
+			  (post-chat-msg)))
 
-		  (defun post-chat-msg () 
-		    ($.post
-		     (concatenate 'string "/blog/chat/i/" *chat-id*)
-		     (session-obj 
-		      :message 
-		      (val-of "input#message")))
-		    (ps:chain ($ "input#message") (val "")))))))
+		    (defun post-chat-msg () 
+		      ($.post
+		       (concatenate 'string "/blog/chat/i/" *chat-id*)
+		       (session-obj 
+			:message 
+			(val-of "input#message")))
+		      (ps:chain ($ "input#message") (val ""))))))))
 
 (page-handler  tb-logged-out)
 (page-handler  tb-logged-in)
@@ -468,38 +511,70 @@
 			     ($ document) 
 			     (ready
 			      (lambda ()
-				(init-login)
-				(get-init-post)		  
 				(update-index)
-				(poll-index)))))))
+				(get-init-post)
+				(init-login)
+						  
+				
+				#|(poll-index)|#
+				))))))
 		(:input :type "hidden" :id "session-id" :name "session-id"))))))))
 
 (defhandler (blog get ("post" "new")) (:|html|)
-  (reply (cl-who:with-html-output-to-string (var)
-	   (:html (:body
-		   (:h3 "Create a new post")		   
-		   :br
-		   "Title"
-		   (:input :type "text" :name "title" :id "title")
-		   :br
-		   "Text"
-		   :br
-		   (:textarea :style "width: 444px; height: 178px;" :name "body" :id "body")
-		   :br
-		   (:input :type "submit" :value "Submit" :onclick
-			   (ps:ps-inline 
-			    (make-post (val-of "input#title")
-				       (val-of "textarea#body")))))))))
+  (bind-query () ((session-id "session-id")
+		  (reply-to "reply-to"))
+      (reply (cl-who:with-html-output-to-string (var)
+	       (:html (:body
+		       (:h3 "Create a new post")
+		       (:script :src "/showdown.js")
+		       (:script :type "text/javascript"
+				(cl-who:str 
+				 (ps:ps
+				   (defvar *converter* (ps:new (ps:chain -showdown (converter))))
+				   (defun markdownize (event)
+				     (ps:chain ($ "div#preview") 
+					       (html 
+						(ps:chain *converter*
+							  (make-html (val-of "textarea#body")))))))))
+		       :br
+		       "Title"
+		       (:input :type "text" :name "title" :id "title")
+		       (when reply-to 
+			 (cl-who:htm
+			  (:input :type "hidden" :name "reply-to" :id "replyto" :value reply-to)))
+		       :br
+		       "Text"
+		       :br
+		       (:textarea :onkeypress (ps:ps-inline (markdownize event))
+				  :style "width: 444px; height: 178px;" :name "body" :id "body")
+		       :br
+		       (:input :type "submit" :value "Submit" :onclick
+			       (cl-who:str
+				(if reply-to
+				    (ps:ps-inline 
+				     (make-post 
+				      (val-of "input#title")
+				      (val-of "textarea#body")
+				      (val-of "input#reply-to")))
+				    (ps:ps-inline 
+				     (make-post 
+				      (val-of "input#title")
+				      (val-of "textarea#body"))))))
+		       (:div :id "preview" :name "preview")))))))
+
 
 
 (defhandler (blog post ("post" "new")) (:|content| "application/json")
     (bind-query () ((session-id "session-id")
-		 (title "title")
-		 (post "post"))
+		    (title "title")
+		    (post "post")
+		    (reply-to "reply-to"))
+      
     (let ((user (check-login session-id)))
-      (format t "~s~%" (list user title post))
       (if (and (and user title post) (has-textp title) (has-textp post))	
 	  (let ((pst-id (generate-post-entry title user post)))
+	    (when reply-to
+	      (add-post-reply reply-to pst-id))
 	    (reply-status "success" 
 			  "user" user
 			  "postId" pst-id))
@@ -511,31 +586,40 @@
     (let ((user (check-login session-id)))
       (if user
 	  (with-recursive-connection ()
-	    (let ((post-ids (lrangeredis user *pst-idx* 0 -1)))
+	    (let ((post-ids (redis:red-zrange (predicate user *pst-idx*) 0 -1)))
 	      (let ((post-titles (redis:with-pipelining 
 				   (dolist (id post-ids)
 				     (hgetredis id "title" *pst-ns*)))))
 		(let ((output-string (cl-who:with-html-output-to-string (var)
 				       (:h3 "Select A Post to Edit")
-				       (:ul 
-					(map nil (lambda (id title) 
-						   (clickable-li var title
-								 (format nil "/blog/post/edit/~a" id)
-								 "div#blog"
-								 '(lambda ()) 
-								 '(ps:create
-								   :session-id (ps:chain ($ "input#session-id") (val)))))
-					     post-ids post-titles)))))
+				       (map nil (lambda (id title) 
+						  (cl-who:htm
+						   (:h4 (cl-who:str title)) :br
+						   (named-link var "Edit"
+							       (format nil "/blog/post/edit/~a" id)
+							       "div#blog"
+							       '(lambda ()) 
+							       '(ps:create
+								 :session-id (ps:chain ($ "input#session-id") (val))))
+						   "|"
+						   (named-link var "Remove"
+							       (format nil "/blog/post/remove/~a" id)
+							       "div#blog"
+							       '(lambda ()) 
+							       '(ps:create
+								 :session-id (ps:chain ($ "input#session-id") (val))))
+						   :hr))
+					    post-ids post-titles))))
 		  (reply output-string)))))
 	  (reply "error")))))
 
-(defhandler (blog get ("post" "remove")) (:|html|)
+#|(defhandler (blog get ("post" "remove")) (:|html|)
   (bind-query ()
       ((session-id "session-id"))
     (let ((user (check-login session-id)))
       (if user
 	  (with-recursive-connection ()
-	    (let ((post-ids (lrangeredis user *pst-idx* 0 -1)))
+	    (let ((post-ids (redis:red-zrange (predicate user *pst-idx*) 0 -1)))
 	      (let ((post-titles (redis:with-pipelining 
 				   (dolist (id post-ids)
 				     (hgetredis id "title" *pst-ns*)))))
@@ -551,14 +635,15 @@
 									 :session-id (ps:chain ($ "input#session-id") (val)))))
 						   post-ids post-titles)))))
 		  (reply output-string)))))
-	  (reply "error")))))
+	  (reply "error")))))|#
 
 
 (defhandler (blog get ("post" "remove" post-id)) (:|html|)
   (bind-query ()
       ((session-id "session-id"))
     (let ((user (check-login session-id)))
-      (if (and user (sismember user *pst-dict* post-id))
+      (if (and user 
+	       (zscore user *pst-idx* post-id))
 	  (reply (concatenate 'string
 			      (cl-who:with-html-output-to-string (stream)
 				  (:button :class "btn" 
@@ -573,7 +658,7 @@
       ((session-id "session-id")
        (post-id "post-id"))
     (let ((user (check-login session-id)))
-      (if (and user (sismember user *pst-dict* post-id))
+      (if (and user (zscore user *pst-idx* post-id))
 	  (progn
 	    (remove-post-entry user post-id)
 	    (reply-status "success"
@@ -586,29 +671,37 @@
   (bind-query ()
       ((session-id "session-id"))
     (let ((user (check-login session-id)))
-      (if (and user (sismember user *pst-dict* post-id))
+      (if (and user (zscore user *pst-idx* post-id))
 	  (let ((post (hmgetredis post-id *pst-ns*)))
 	    (destructure-props ((title "title")
 				(body "body"))
 		post
-	      (format t "~s~%" body)
 	      (reply (cl-who:with-html-output-to-string (var)
 		       (:html (:body
-			       (:B "Not Much Here")		   
+			       (:h3 "Edit a Post")
+			       (:script :src "/showdown.js")
+			       (:script :type "text/javascript"
+					(cl-who:str 
+					 (ps:ps
+					   (defvar *converter* (ps:new (ps:chain -showdown (converter))))
+					   (defun markdownize (event)
+					     (ps:chain ($ "div#preview") (html (ps:chain *converter* (make-html (val-of "textarea#body")))))))))
 			       :br
 			       "Title"
 			       (:input :type "text" :name "title" :id "title" :value (cl-who:str title))
 			       :br
 			       "Text"
 			       :br
-			       (:textarea :style "width: 444px; height: 178px;" :name "post-text" :id "post-text" (cl-who:str body))
+			       (:textarea :onkeypress (ps:ps-inline (markdownize event))
+					  :style "width: 444px; height: 178px;" :name "body" :id "body" (cl-who:str body))
 			       :br
 			       (:input :type "submit" :value "Submit" :onclick
 				       (ps:ps-inline 
 					(update-post 
 					 (val-of "input#title")
-					 (val-of "textarea#post-text")
+					 (val-of "textarea#body")
 					 (val-of "input#post-id"))))
+			       (:div :id "preview" :name "preview")
 			       (:input :type "hidden" :name "post-id" :id "post-id" :value (cl-who:str post-id))))))))
 	  (reply "error")))))
 
@@ -620,7 +713,7 @@
     (let ((user (check-login session-id)))
       (if (and 
 	   (and user title post post-id)
-	   (sismember user *pst-dict* post-id)
+	   (zscore user *pst-idx* post-id)
 	   (has-textp title)
 	   (has-textp post))
 	  (progn
@@ -640,31 +733,39 @@
     (let ((user (check-login session-id)))
       (if (and user start end)
 	  (with-recursive-connection ()
-	    (let* ((paths (lrangeredis user *mailbox-ns* start end))
+	    (let* ((paths (redis:red-zrange (predicate user *mailbox-ns*) start end))
 		   (post-infos (redis:with-pipelining 
 				 (dolist (path paths)
-				   (redis:red-hmget (concatenate 'string *pst-ns* ":" path) "title" "body" "author")))))
-	      (reply 
-	       (cl-who:with-html-output-to-string (var)
-		 (:input :type "hidden" :name "feed-start" :id "feed-start" :value (cl-who:str start))
-		 (:input :type "hidden" :name "feed-end" :id "feed-end" :value (cl-who:str end)) 
-		 (map 'nil 
-		      (lambda (path post-info)
-			(destructuring-bind (title body author) post-info
-			  (when (and path title)
-			    (cl-who:htm 
-			     (:h2 (named-link var title (format nil "/blog/viewpost/~a" path) "div#blog"
-					      '(lambda () (topbar-swap tb-logged-in-friends))))
-			     (:p
-			      (cl-who:str 
-			       (if (> (length body) 140)
-				   (concatenate 'string (subseq body 0 140) "...")
-				   body)))
-			     (:a :href (format nil "/blog/main/~a" author) (cl-who:str author))
-			     :br
-			     :hr))))
-		      paths post-infos)))))
-	  (reply  "") 
+				   (redis:red-hmget (predicate path *pst-ns*) "title" "body" "author")))))
+	      (if paths
+		  (reply 
+		   (cl-who:with-html-output-to-string (var)
+		     (:h4 "Your Feed")
+		     (:input :type "hidden" :name "feed-start" :id "feed-start" :value (cl-who:str start))
+		     (:input :type "hidden" :name "feed-end" :id "feed-end" :value (cl-who:str end)) 
+		     (map 'nil 
+			  (lambda (postid post-info)
+			    (destructuring-bind (title body author) post-info
+			      (when (and postid title)
+				(cl-who:htm 
+				 (:h2 (named-link var title (format nil "/blog/viewpost/~a" postid) "div#blog"
+						  '(lambda () (topbar-swap tb-logged-in-friends))))
+				 (:p
+				  (cl-who:str 
+				   (if (> (length body) 140)
+				       (concatenate 'string (subseq body 0 140) "...")
+				       body)))
+				 (:a :href (format nil "/blog/main/~a" author) (cl-who:str author))
+				 :br
+				 (named-link var "Reply" 
+					     "/blog/post/new/"
+					     "div#blog"
+					     '(lambda ()) `(session-obj "reply-to" ,postid))
+				 :br
+				 :hr))))
+			  paths post-infos)))
+		  (reply "Add Some Friends to See Something Here!"))))
+	  (reply  "error") 
 	  ))))
 
 (defhandler (blog get ("settings")) (:|html|)
@@ -675,6 +776,7 @@
 	    (let ((title (getprop settings "title" "Title"))
 		  (display-name (getprop settings "display-name" user))
 		  (subtitle (getprop settings "subtitle" "Subtitle")))
+
 	      (reply (cl-who:with-html-output-to-string (var)
 		       (:body
 			"Display Name" :br
@@ -695,23 +797,20 @@
 							      :subtitle
 							      (val-of "input#subtitle")))))
 			 :value "Update Settings"))))))
-	  (reply "Log In First"))
-      )))
+	  (reply "Log In First")))))
 
 (defhandler (blog post ("settings")) (:|content| "application/json")
-  #|(let* ((q (parse-query *query*))
-  (session-id (second (assoc "session-id" q :test #'string=))))|#
-  (bind-query (q) ((session-id "session-id"))
+  (bind-query (q) ((session-id "session-id")
+		   (title "title")
+		   (subtitle "subtitle")
+		   (display-name "display-name"))
     (let ((user (check-login session-id)))
       (if user
-	  (let ((title (cl-who:escape-string-iso-8859-1(second (assoc "title" q :test #'string=))))
-		(subtitle (cl-who:escape-string-iso-8859-1 (second (assoc "subtitle" q :test #'string=))))
-		(display-name (cl-who:escape-string-iso-8859-1 (second (assoc "display-name" q :test #'string=)))))
-	    (if (and (has-textp title) (has-textp display-name))
-		(progn
-		  (hmsetredis user *settings-ns* "title" title "subtitle" subtitle "display-name" display-name)
-		  (reply-status "success"))
-		(reply-status "failure")))
+	  (if (and (has-textp title) (has-textp display-name))
+	      (progn
+		(hmsetredis user *settings-ns* "title" title "subtitle" subtitle "display-name" display-name)
+		(reply-status "success" "title" title "subtitle" subtitle "display-name" display-name))
+	      (reply-status "failure"))
 	  (reply-status "failure")))))
 
 (defhandler (blog get ("register")) (:|html|)
@@ -723,19 +822,6 @@
 				:br
 				(:input :type "text" :name "user")
 				:br
-				"E-mail"
-				:br
-				(:input :type "text" :name "e-mail")
-				:br
-				(:input :type "submit" :value "Register")))))))
-
-(defhandler (blog get ("register" token)) (:|html|)
-  (let ((user (getredis token *registration-tokens*)))
-    (if user
-	(reply (cl-who:with-html-output-to-string (var)
-		 (:html 
-		  (:body (:h1 (cl-who:str (concatenate 'string "Click Here to Complete Registration as" user)))
-			 (:form :action "/blog/register/complete" :method "POST"
 				"Password"
 				:br
 				(:input :type "password" :name "password")
@@ -752,94 +838,60 @@
 				:br
 				(:input :type "text" :name "subtitle" :value "Your Subtitle Here")
 				:br
-				(:input :type "hidden" :name "user" :value (cl-who:str user))
-				(:input :type "hidden" :name "token" :value (cl-who:str token))
-				(:input :type "submit" :value "Register"))))))
-	(reply "error"))))
+				(:input :type "submit" :value "Register")))))))
 
-(defhandler (blog post ("register" "complete")) (:|content| "application/json")
+(defhandler (blog post ("register")) (:|html|)
   (bind-query () ((user "user")
-		  (token "token")
 		  (password "password")
 		  (password2 "password2")
 		  (title "title")
 		  (subtitle "subtitle"))
-    (when (and (equalp (getredis token *registration-tokens*) user)
-	       (string= password password2))
-      (with-recursive-connection ()
-	(redis:red-sadd *users* user)
-	(add-password user password)
-	(hmsetredis user *settings-ns*
-		    "title" title
-		    "subtitle" subtitle "display-name" user))
-      (reply (format nil "/blog/main/~a" user) :|redirect|))))
-      
-
-
-(defhandler (blog post ("register")) (:|html|)
-  (bind-query () ((e-mail "e-mail")
-		  (user "user"))
-    (setf user (string-downcase (cl-who:escape-string-iso-8859-1 user)))
+    (setf user (string-downcase user))
     (cond 
       ((or (getredis user *password-ns*)
 	   (< (length user) 3))
        (reply (cl-who:with-html-output-to-string (var)
 		(:html (:body (:B "Name already taken or name must be at least 3 characters")
 			      :br (:b (:a :href "/blog/register" "Try Again")))))))
-      ((and e-mail user)
-       (let ((token (uuid-string)))
-	 (setf (getredis token  *registration-tokens*) user)
-	 #|(cl-sendmail:with-email (mailstream e-mail :subject "Your Registration")
-	     (cl-who:with-html-output (mailstream)
-	       (:a :href  (format nil "http://~a/blog/register/~a" *domain-root* token) "Complete Registration")))|#
-	 
-	 (let* ((link (format nil "http://~a/blog/register/~a" *domain-root* token)) ;;until i have a server with sendmail set up properly.
-		(body (cl-who:with-html-output-to-string (mailstream)
-			(cl-who:htm
-			 (:html 
-			  (:body
-			   (:a :href link  "Complete Registration")))))))
-	 (reply body)))))))
-
-(defhandler (blog get ("login")) (:|html|)
-  (reply (cl-who:with-html-output-to-string (stream)
-	   (:body 
-	    "Login Name"
-	    :br
-	    (:input :type "text" :id "user" :name "user") :br
-	    "Password"
-	    :br
-	    (:input :type "password" :id "password" :name "password") :br
-	    (:input :type "submit" :value "Login" :onclick 
-		    (ps:ps-inline (login
-				   (val-of "input#user")
-				   (val-of "input#password"))))
-	    :br 
-	    "Don't Have an Account? " 
-	    (named-link stream "Register" "/blog/register/" "div#blog" )
-	    ))))
+      ((and user (string= password password2))
+       (with-recursive-connection ()
+	 (redis:red-sadd *users* user)
+	 (add-password user password)
+	 (generate-post-entry "Default Post" user "First Post")
+	 (let ((chat-id (generate-chat-entry "Default Chat" user)))
+	   (hsetredis user "default-chat" chat-id *settings-ns*))
+	 (hmsetredis user *settings-ns*
+		     "title" title
+		     "subtitle" subtitle "display-name" user))
+       (reply (format nil "/blog/main/~a" user) :|redirect|)))))
 
 (defhandler (blog post ("login")) (:|content| "application/json")
-  (let ((q (parse-query *query*)))
-    (let ((user (string-downcase (cl-who:escape-string-iso-8859-1 (second (assoc "user" q  :test #'string=)))))
-	  (password (second (assoc "password" q :test #'string=))))
-      (let ((uuid (create-login user password)))
-	(if uuid 
-	    (reply-status "success" 
-			  "expires" *expire-days*
-			  "cookieId" *site-cookie-name*
-			  "postId" (most-recent-post user)
-			  "sessionId" uuid)
-	    (reply-status "failure"))))))
+  (bind-query () ((user "user")
+		  (password "password"))
+    
+    (setf user (string-downcase user))
+          
+    (let ((uuid (create-login user password)))
+      (if uuid 
+	  (reply-status "success" 
+			"expires" *expire-days*
+			"cookieId" *site-cookie-name*
+			"postId" (most-recent-post user)
+			"sessionId" uuid)
+	  (reply-status "failure")))))
+
+(defhandler (blog post ("logout")) (:|content| "application/json")
+  (bind-query () ((session-id "session-id"))
+    (timeout-session session-id)
+    (reply-status "success")))
+
 
 (defhandler (blog post ("re-auth")) (:|content| "application/json")
-  (let ((q (parse-query *query*)))
-    (let ((session-id (second (assoc "session-id" q :test #'string=))))
-      ;(format t "~s~%" session-id)
-      (let ((user (check-login session-id)))
-	(if user
-	    (reply-status "success" "user" user)
-	    (reply-status "failure" "user" ""))))))
+  (bind-query () ((session-id "session-id"))
+    (let ((user (check-login session-id)))
+      (if user
+	  (reply-status "success" "user" user)
+	  (reply-status "failure" "user" "")))))
 
 (let ((chat-reply-table (make-hash-table :test  #'equalp :synchronized t))
       (lock (bt:make-lock))
@@ -892,33 +944,42 @@
 	(reply-all text  chat-reply-list :|html| nil)))))
 
 (defhandler (blog get ("chat" "i" chat-id)) (:|html|)
-  (reply (cl-who:with-html-output-to-string (val)
+  (bind-query () ((session-id "session-id"))
+    (if (check-login session-id)
+	(reply (cl-who:with-html-output-to-string (val)
+		 (:html (:body 
+			 (:script :type "text/javascript"
+				  (cl-who:str 
+				   (ps:ps*
+				    `(progn
+				       (setf *chat-id* ,chat-id)
+				       (chat-loop-init)))))
+			 :br
+			 (:div :id "chatwindow")
+			 :br
+			 "Message: "
+			 (:input 
+			  :id "message"
+			  :type "text"
+			  :name "message"
+			  :onkeypress (ps:ps-inline (key-stroke-update event)))
+			 :br
+			 (:input :type "submit" 
+				 :value "Send"
+				 :onclick (ps:ps-inline* `(post-chat-msg ,chat-id)))))))
+	(reply 
+	 (cl-who:with-html-output-to-string (val)
 	   (:html (:body 
 		   (:script :type "text/javascript"
-			    (cl-who:str 
-			     (ps:ps*
-			      `(progn
-				 (setf *chat-id* ,chat-id)
-				   (chat-loop-init)))))
-		   :br
-		   (:div :id "chatwindow")
-		   :br
-		   "Message: "
-		   (:input 
-		    :id "message"
-		    :type "text"
-		    :name "message"
-		    :onkeypress (ps:ps-inline (key-stroke-update event)))
-		   :br
-		   (:input :type "submit" 
-			   :value "Send"
-			   :onclick (ps:ps-inline* `(post-chat-msg ,chat-id))))))))
+			    (cl-who:str (ps:ps* `(progn
+						   (setf *chat-id* ,chat-id)
+						   (chat-loop-init)))))
+		   (:div :id "chatwindow"))))))))
 
 (defhandler (blog post ("chat" "i" chat-id)) (:|html|)
   (reply "")
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=)))
-	 (message (second (assoc "message" q :test #'string=))))
+  (bind-query () ((session-id "session-id")
+		  (message "message"))
     (let ((name (check-login session-id)))
       (when (and name message)
 	(set-chat-text
@@ -927,7 +988,7 @@
 		   (:a :href (format nil "/blog/main/~a" name) 
 		       (cl-who:str (format nil "~a:" (hgetredis name "display-name" *settings-ns*))))
 		   " "
-		   (cl-who:str (cl-who:escape-string-iso-8859-1  message))
+		   (cl-who:str message)
 		   :br))))))
 
 (defhandler (blog get ("chat" "create")) (:|html|)
@@ -953,16 +1014,10 @@
 	  (reply-status "failure")))))
 
 (defhandler (blog get ("chat" "wait" chat-id)) (:|html|)
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=))))
-    (when (check-login session-id)
-      (queue-request chat-id))))
+      (queue-request chat-id))
 
 (defhandler (blog get ("chat" "instant" chat-id)) (:|html|)
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=))))
-    (when (check-login session-id)
-      (reply (get-chat-text chat-id)))))
+    (reply (get-chat-text chat-id)))
 
 (defhandler (blog get ("chat" "subs")) (:|html|)
   (bind-query () ((session-id "session-id"))
@@ -975,17 +1030,52 @@
 		     (multiple-value-bind (ids titles owners) (chat-subs user)
 		       (map nil (lambda (id title owner)
 				  (cl-who:htm (:h4 (cl-who:str title)) :br
-					      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat")
+					      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat" '(lambda ()) '(session-obj))
 					      " "
-					      (:a :href "#" :onclick (ps:ps-inline (progn (chat-history 0 20)
-											  (topbar-swap tb-logged-in-chat-history))) "History")
+					      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
+											    (topbar-swap tb-logged-in-chat-history))) "History")
 					      (when (equalp owner user)
 						(cl-who:htm " ")
 						(named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
 							    '(lambda ()) '(session-obj)))
+					      " "
+					      (:a :href "#" :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
+											     (session-obj)))
+						  "Set as Default")
 					      :hr) (incf counter))
 			    ids titles owners)))))
 	  (reply "")))))
+
+(defhandler (blog post ("chat" "setdefault" chat-id)) (:|content| "application/json")
+  (bind-query () ((session-id "session-id"))
+    (let ((user (check-login session-id)))
+      (if (and user (chat-owned-p  user chat-id))
+	  (progn (hsetredis user "default-chat" chat-id *settings-ns*)
+		 (reply-status "success"))
+	  (reply-status "failure")))))
+
+(defhandler (blog get ("chat" "owned" owner)) (:|html|)
+  (reply (cl-who:with-html-output-to-string (var)
+	   (:h1 (format nil "~a's Chat Subs" owner)) 
+	   :br
+	   (let ((counter 0))
+	     (multiple-value-bind (ids titles) (owned-chats owner)
+	       (map nil (lambda (id title)
+			  (cl-who:htm (:h4 (cl-who:str title)) :br
+				      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat")
+				      " "
+				      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
+										    (topbar-swap tb-logged-in-chat-history))) "History")
+				      (cl-who:htm " ")
+				      (named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
+						  '(lambda ()) '(session-obj))
+				      (cl-who:htm " ")
+				      (:a :href "#" :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
+										     (session-obj)))
+					  "Set as Default")
+				      :hr
+				      ) (incf counter))
+		    ids titles))))))
 
 (defhandler (blog get ("chat" "edit" id)) (:|html|)
   (bind-query () ((session-id "session-id"))
@@ -1015,7 +1105,6 @@
   (bind-query () ((session-id "session-id")
 		  (title "title")
 		  (default "default"))
-    (format t "~s~%" default)
     (let ((user (check-login session-id)))
       (if (and user (chat-owner-p user id))
 	  (progn (hsetredis id "title" title *chat-info*)
@@ -1026,15 +1115,15 @@
 	      
 
 (defhandler (blog get ("chat" "history" chat-id)) (:|content| "application/json")
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=)))
-	 (start (parse-integer (second (assoc "start" q :test #'string=)) :junk-allowed t))
-	 (end (parse-integer (second (assoc "end" q :test #'string=)) :junk-allowed t)))
-    (if (and (check-login session-id) start end)
+  (bind-query () ((start "start")
+		  (end "end")
+		  (title "title"))
+    (if (and start end)
 	(reply-status 
 	 "success"
 	 "result"
 	 (cl-who:with-html-output-to-string (var)
+	   (:h3 (cl-who:str title))
 	   (:input :type "hidden" :id "ch-start" :name "ch-start" :value start)
 	   (:input :type "hidden" :id "ch-end" :name "ch-end" :value end)
 	   (cl-who:str (apply #'concatenate 'string (nreverse (lrangeredis chat-id *chat-ns* start end))))))
@@ -1043,71 +1132,57 @@
 
 
 
-(defun friend-p (user friend)
-  (let ((predicated (predicate user *friends-ns*)))
-    (with-recursive-connection () (redis:red-sismember predicated friend))))
 
-(defun add-friend (user friend)
-  (let ((user-friends (predicate user *friends-ns*))
-	(friend-followers (predicate friend *followers-ns*))
-	(friend-follower-mailboxes (predicate friend *follower-mailboxes-ns*)))
-    (when (with-recursive-connection () 
-	    (and (redis:red-sismember *users* friend)
-		 (redis:red-sismember *users* user)))
-      (with-recursive-connection ()
-	(redis:with-pipelining 
-	  (redis:red-sadd user-friends friend)
-	  (redis:red-sadd friend-followers user)
-	  (redis:red-sadd friend-follower-mailboxes (predicate user *mailbox-ns*)))))))
+(defhandler (blog post ("friends" "json" "remove")) (:|content| "application/json")
+  (bind-query () ((session-id "session-id")
+		  (friends "friends"))
+    (let ((user (check-login session-id)))
+      (if (and user friends)
+	  (let ((friends-list (cl-ppcre:split " " friends)))
+	    (dolist (friend friends-list)
+	      (remove-friend user friend))
+	    (reply-status "success"))	    
+	  (reply-status "failure")))))
 
-(defun get-friends (user)
-  (let ((predicated (predicate user *friends-ns*)))
-    (with-recursive-connection ()
-      (redis:red-smembers predicated))))
 
 (defhandler (blog post ("friends" "json" "add")) (:|content| "application/json")
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=)))
-	 (user (check-login session-id)))
-    (block nil
-      (when user
-	(let ((friends (second (assoc "friends" q :test #'string=))))
-	  (when friends
-	    (let ((friends-list (cl-ppcre:split " " friends)))
-	      (dolist (friend friends-list)
-		(add-friend user friend)))
-	    (reply-status "success")
-	    (return))))
-      (reply-status "failure"))))
+  (bind-query () ((session-id "session-id")
+		  (friends "friends"))
+    (let ((user (check-login session-id)))
+      (if (and user friends)
+	  (let ((friends-list (cl-ppcre:split " " friends)))
+	    (dolist (friend friends-list)
+	      (add-friend user friend))
+	    (reply-status "success"))
+	  (reply-status "failure")))))
 
 (defhandler (blog get ("friends")) (:|html|)
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=)))
-	 (user (check-login session-id)))
-    (block nil
-      (when user
-	(let ((friends-list (get-friends user)))
-	  (when friends-list
-	    (reply 
-	     (cl-who:with-html-output-to-string (var)
-	       (dolist (friend friends-list)
-		 (cl-who:htm (:a :href (format nil "/blog/main/~a" friend) (cl-who:str friend)) :br))))
-	    (return))))
-      (reply ""))))
+  (bind-query () ((session-id "session-id")
+		  (user "user"))
+    (if user
+	(let* ((friends-list (get-friends user))
+	       (display-names 
+		(with-recursive-connection ()
+		  (redis:with-pipelining
+		    (map 'nil (lambda (friend) (hgetredis friend "display-name" *settings-ns*))
+			 friends-list)))))
+	  (if friends-list
+	      (reply 
+	       (cl-who:with-html-output-to-string (var)
+		 (map nil (lambda (friend display-name)
+			    (cl-who:htm (:a :href (format nil "/blog/main/~a" friend) (cl-who:str display-name)) :br))
+		      friends-list display-names)))
+	      (reply "Add Some Friends to See Something Here!")))
+	(reply ""))))
 
 (defhandler (blog get ("friends" "json" "list")) (:|content| "application/json")
-  (let* ((q (parse-query *query*))
-	 (session-id (second (assoc "session-id" q :test #'string=)))
-	 (user (check-login session-id)))
-    (block nil
-      (when user
-	(let ((user-to-lookup (second (assoc "user" q :test #'string=))))
-	  (let ((friends-list (when user-to-lookup
-				(get-friends user-to-lookup))))
-	    (when friends-list
-	      (reply-status "success" "friends" friends-list)
-	      (return))))))
-    (reply-status "failure")))
+  (bind-query () ((session-id "session-id")
+		  (user-to-lookup "user"))
+    (let ((user (check-login session-id))
+	  (friends-list  (get-friends user-to-lookup)))
+      (if (and user user-to-lookup friends-list)
+	  (reply-status "success" "friends" friends-list)
+	  (reply-status "failure")))))
 	
 (generate-appmods)
 
@@ -1119,12 +1194,6 @@
   
 
   (with-recursive-connection ()
-    (setf *salt* (let ((salt (redis:red-get "PASSWORD:SALT")))
-		   (if salt 
-		       salt
-		       (let ((uuid (uuid-string))) 
-			 (redis:red-set "PASSWORD:SALT" uuid)
-			 uuid))))
     (setf *site-cookie-name* (let ((cookie  (redis:red-get "SITE:COOKIE")))
 			       (if cookie 
 				   cookie
