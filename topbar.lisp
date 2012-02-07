@@ -143,7 +143,7 @@
 
 (def-topbar (tb-logged-in "Main" ("loggedin")) ()
   ((:li (:a :href "#friends" :onclick (ps:ps-inline (topbar-swap tb-logged-in-friends)) "Friends"))
-   (:li (:a :href "#followers" #|:onclick (ps:ps-inline (topbar-swap tb-logged-in-followers))|# "Followers"))
+   (:li (:a :href "#followers" :onclick (ps:ps-inline (topbar-swap tb-logged-in-followers)) "Followers"))
    (:li (:a :href "#post" :onclick (ps:ps-inline (topbar-swap tb-logged-in-post)) "Post"))
    (:li (:a :href "#settings" 
 	    :onclick 
@@ -192,14 +192,34 @@
    (:li (:a :href "#friends" 
 	    :onclick
 	    (ps:ps-inline		
-	     ;(set-topbar "friends-list")
+					;(set-topbar "friends-list")
 	     (js-link "/blog/friends" "div#blog" (lambda ())
 		      (ps:create :session-id
 				 (ps:chain ($ "input#session-id")
-					   (val)))))
+					   (val))
+				 :user author
+				 )))
 	    "List"))
    #|(:li (:a :href "#" "Add"))
    (:li (:a :href "#" "Remove"))|# )
+  (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
+  (:button :class "btn" 
+	   :type "submit"
+	   :onclick (ps:ps-inline (do-search)) 
+	   "Search"))
+
+(def-topbar (tb-logged-in-followers "Followers" ("followers") :parent tb-logged-in) ()
+  ((:li (:a :href "#followers" 
+	    :onclick
+	    (ps:ps-inline		
+	     (js-link "/blog/followers" "div#blog" (lambda ())
+		      (ps:create :session-id
+				 (ps:chain ($ "input#session-id")
+					   (val))
+				 :user author
+				 )))
+	    "List")))
+
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
   (:button :class "btn" 
 	   :type "submit"
@@ -273,7 +293,7 @@
 		    (js-link "/blog/settings/" "div#blog" (lambda ()) 
 			     (ps:create 
 			      "session-id" (ps:chain ($ "input#session-id") (val)))))) "Settings"))
-   (:li (:a :href "#" "Picture"))
+   ;(:li (:a :href "#" "Picture"))
    (:li (:a :href "#" "Bio"))
    (:li (:a :href "#" "Style")))
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")

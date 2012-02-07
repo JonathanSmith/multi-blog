@@ -121,6 +121,11 @@
     (with-recursive-connection ()
       (redis:red-smembers predicated))))
 
+(defun get-followers (user)
+  (let ((predicated (predicate user *followers-ns*)))
+    (with-recursive-connection ()
+      (redis:red-smembers predicated))))
+
 (defun generate-post-entry (title author lines)
   (let* ((time (get-universal-time))
 	 (post-id (with-recursive-connection ()

@@ -79,7 +79,7 @@
 			   (init-login)
 			   (set-topbar (page-path tb-logged-out))))
 		(ps:ps
-		  (defvar *logged-in-user nil)
+		  (defvar *logged-in-user* nil)
 		  (defpostfn login (blog login)
 		    ((user password) 
 		     (ps:create "user" user "password" password))
@@ -147,9 +147,9 @@
 			(js-link (concatenate 'string "/blog/viewpost/"
 					      *most-recent-post*)
 				 "div#blog" (lambda ()) (session-obj))
-			,@(if chat-id
-			      `((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ())))
-			      nil))
+			(update-index)
+			;,@(if chat-id `((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ()) (session-obj))))
+			)
 
 		     `(defun init-login ()
 			(let ((session-id (get-cookie ,*site-cookie-name*)))
@@ -159,10 +159,10 @@
 					(progn
 					  (ps:chain ($ "input#session-id") (val session-id))
 					  (after-login (ps:getprop data 'user))
-					  
-					  ,@(if chat-id
+					  (update-index)))
+				    ,@(if chat-id
 						`((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ()) (session-obj)))
-						nil)))))))
+						nil)))))
 		     `(defun log-out ()
 			(set-cookie ,*site-cookie-name* "" 0)
 			(ps:chain ($ "div#chat") (html ""))
@@ -417,6 +417,7 @@
 (page-handler tb-is-friend)
 (page-handler tb-logged-in-friend-feed)
 (page-handler  tb-logged-in-friends)
+(page-handler tb-logged-in-followers)
 (page-handler  tb-logged-in-chat )
 (page-handler tb-logged-in-chat-history)
 (page-handler tb-logged-in-post)
@@ -511,7 +512,6 @@
 			     ($ document) 
 			     (ready
 			      (lambda ()
-				(update-index)
 				(get-init-post)
 				(init-login)
 						  
@@ -765,8 +765,7 @@
 				 :hr))))
 			  paths post-infos)))
 		  (reply "Add Some Friends to See Something Here!"))))
-	  (reply  "error") 
-	  ))))
+	  (reply  "error")))))
 
 (defhandler (blog get ("settings")) (:|html|)
    (bind-query () ((session-id "session-id"))
@@ -1178,11 +1177,41 @@
 (defhandler (blog get ("friends" "json" "list")) (:|content| "application/json")
   (bind-query () ((session-id "session-id")
 		  (user-to-lookup "user"))
+    (format t "~s~%" user-to-lookup)
     (let ((user (check-login session-id))
 	  (friends-list  (get-friends user-to-lookup)))
       (if (and user user-to-lookup friends-list)
 	  (reply-status "success" "friends" friends-list)
 	  (reply-status "failure")))))
+
+(defhandler (blog get ("followers" "json" "list")) (:|content| "application/json")
+  (bind-query () ((session-id "session-id")
+		  (user-to-lookup "user"))
+    (format t "~s~%" user-to-lookup)
+    (let ((user (check-login session-id))
+	  (followers-list  (get-followers user-to-lookup)))
+      (if (and user user-to-lookup followers-list)
+	  (reply-status "success" "followers" followers-list)
+	  (reply-status "failure")))))
+
+(defhandler (blog get ("followers")) (:|html|)
+  (bind-query () ((session-id "session-id")
+		  (user "user"))
+    (if user
+	(let* ((followers-list (get-followers user))
+	       (display-names 
+		(with-recursive-connection ()
+		  (redis:with-pipelining
+		    (map 'nil (lambda (follower) (hgetredis follower "display-name" *settings-ns*))
+			 followers-list)))))
+	  (if followers-list
+	      (reply 
+	       (cl-who:with-html-output-to-string (var)
+		 (map nil (lambda (follower display-name)
+			    (cl-who:htm (:a :href (format nil "/blog/main/~a" follower) (cl-who:str display-name)) :br))
+		      followers-list display-names)))
+	      (reply "Gain Some Followers to See Something Here!")))
+	(reply ""))))
 	
 (generate-appmods)
 
