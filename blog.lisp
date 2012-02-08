@@ -504,7 +504,9 @@
 			   (:div :id "index" :class "span4" "Index Goes Here")
 			   (:div :id "blog" :class "span8" "Body Text Goes Here")
 			   (:div :id "chat" :class "span4" "Chat Goes Here")))
-
+	       (format var "<!--[if lt IE 9]>
+      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
+    <![endif]-->")
 	       (:script :src "/jquery.min.js")
 	       (:script :src (format nil "/blog/jslib/~a" author))
 
