@@ -456,6 +456,7 @@
 		     (dolist (user users)
 		       (hgetredis user "title" *settings-ns*)))))
 	 (html (cl-who:with-html-output-to-string (var)
+		 (format var "<!DOCTYPE html>")
 		 (:html (:head (:title "Welcome to Multiblog")
 			       (:link :rel "stylesheet" :href "/bootstrap.css")
 			       (:style :type "text/css"  "body {padding-top: 60px;}")
@@ -489,6 +490,7 @@
   (let ((properties (hmgetredis author *settings-ns*)))
     (reply 
      (cl-who:with-html-output-to-string (var)
+       (format var "<!DOCTYPE html>")
        (:html (:head (:title (cl-who:str (getprop properties "title")))
 		     (:link :rel "stylesheet" :href "/bootstrap.css")
 		     (:style :type "text/css"  "body {padding-top: 60px;}")
