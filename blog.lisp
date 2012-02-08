@@ -1218,7 +1218,7 @@
 (defun blog-main ()
   ;;can go into redis later on.
 
-  (setf *yaws-server-node-name* "jon-VirtualBox")
+  (setf *yaws-server-node-name* "socrates")
   (setf *cookie-file* "/home/jon/github/Lisp-on-Yaws/COOKIE")
   
 

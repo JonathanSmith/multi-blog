@@ -18,7 +18,6 @@
       `($.get ,link
 	      ,(if object object `(ps:create))
 	      (lambda (,data)
-		(console.log ,data)
 		(ps:chain ($ ,div-id) 
 			  (html ,data))
 		,@(if afterfn
