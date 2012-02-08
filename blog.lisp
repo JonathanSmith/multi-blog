@@ -460,6 +460,10 @@
 			       (:link :rel "stylesheet" :href "/bootstrap.css")
 			       (:style :type "text/css"  "body {padding-top: 60px;}"))
 			(:body 
+			 (format var "<!--[if lt IE 9]>
+      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
+    <![endif]-->")
+			 (:script :src "http://html5shim.googlecode.com/svn/trunk/html5.js")
 			 (:script :src "/jquery.min.js")
 			 (:script :src "/blog/jslib/")
 			 (:script :type "text/javascript"
