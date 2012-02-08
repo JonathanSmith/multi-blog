@@ -458,12 +458,12 @@
 	 (html (cl-who:with-html-output-to-string (var)
 		 (:html (:head (:title "Welcome to Multiblog")
 			       (:link :rel "stylesheet" :href "/bootstrap.css")
-			       (:style :type "text/css"  "body {padding-top: 60px;}"))
-			(:body 
-			 (format var "<!--[if lt IE 9]>
+			       (:style :type "text/css"  "body {padding-top: 60px;}")
+			       (format var "<!--[if lt IE 9]>
       <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
-    <![endif]-->")
-			 (:script :src "http://html5shim.googlecode.com/svn/trunk/html5.js")
+    <![endif]-->"))
+			(:body 
+			 
 			 (:script :src "/jquery.min.js")
 			 (:script :src "/blog/jslib/")
 			 (:script :type "text/javascript"
@@ -491,7 +491,10 @@
      (cl-who:with-html-output-to-string (var)
        (:html (:head (:title (cl-who:str (getprop properties "title")))
 		     (:link :rel "stylesheet" :href "/bootstrap.css")
-		     (:style :type "text/css"  "body {padding-top: 60px;}"))
+		     (:style :type "text/css"  "body {padding-top: 60px;}")
+		     (format var "<!--[if lt IE 9]>
+      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
+    <![endif]-->"))
 	      
 	      (:body 
 	       (:div :id "topbar" (render-page tb-logged-out var))
@@ -504,9 +507,7 @@
 			   (:div :id "index" :class "span4" "Index Goes Here")
 			   (:div :id "blog" :class "span8" "Body Text Goes Here")
 			   (:div :id "chat" :class "span4" "Chat Goes Here")))
-	       (format var "<!--[if lt IE 9]>
-      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
-    <![endif]-->")
+	       
 	       (:script :src "/jquery.min.js")
 	       (:script :src (format nil "/blog/jslib/~a" author))
 
