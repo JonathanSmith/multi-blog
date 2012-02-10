@@ -32,6 +32,48 @@
 	       ,body)
 	    body)))))
 
+(defun interactive-chat-window (chat-id)
+  (cl-who:with-html-output-to-string (val)
+    (:html (:body 
+	    (:script :type "text/javascript"
+		     (cl-who:str 
+		      (ps:ps*
+		       `(progn
+			  (setf *chat-id* ,chat-id)
+			  (chat-loop-init)))))
+	    :br
+	    (:div :id "chatwindow")
+	    :br
+	    "Message: "
+	    (:input 
+	     :id "message"
+	     :type "text"
+	     :name "message"
+	     :onkeypress (ps:ps-inline (key-stroke-update event)))
+	    :br
+	    (:input :type "submit" 
+		    :value "Send"
+		    :onclick (ps:ps-inline* `(post-chat-msg ,chat-id)))))))
+
+
+(defun chat-window-viewer (chat-id)
+  (cl-who:with-html-output-to-string (val)
+    (:html (:body 
+	    (:script :type "text/javascript"
+		     (cl-who:str (ps:ps* `(progn
+					    (setf *chat-id* ,chat-id)
+					    (chat-loop-init)))))
+	    (:div :id "chatwindow")))))
+
+(defhandler (blog get ("data" author post-id chat-id)) (:|content| "application/json")
+  (bind-query () ((session-id "session-id"))
+    (let ((post (generate-post-from-db post-id))
+	  (chat (if (check-login session-id)
+		    (interactive-chat-window chat-id)
+		    (chat-window-viewer chat-id)))
+	  (index (generate-index author)))
+      (reply-status "success" "post" post "chat" chat "index" index))))
+
 (defhandler (blog get ("viewpost" postid)) (:|html|)
   (bind-query () ((session-id "session-id"))
     (if postid
@@ -70,7 +112,9 @@
 				       (if (equal (ps:getprop data 'status) "success")
 					   (progn
 					     (ps:chain ($ "input#session-id") (val session-id))
-					     (after-login (ps:getprop data 'user))))))))
+					     (after-login (ps:getprop data 'user)))
+					   
+					   )))))
 			`(defun log-out ()
 			   ($.post "/blog/logout/" (session-obj))
 			   (ps:chain ($ "input#session-id") "")
@@ -726,7 +770,8 @@
 	   (has-textp title)
 	   (has-textp post))
 	  (progn
-	    (update-post-entry post-id title user post)
+	    (with-recursive-connection ()
+	    (update-post-entry post-id title user post))
 	    (reply-status "success" 
 			  "user" user
 			  "postId" post-id))
@@ -1227,7 +1272,7 @@
 (defun blog-main ()
   ;;can go into redis later on.
 
-  (setf *yaws-server-node-name* "socrates")
+  (setf *yaws-server-node-name* "jon-VirtualBox")
   (setf *cookie-file* "/home/jon/github/Lisp-on-Yaws/COOKIE")
   
 
