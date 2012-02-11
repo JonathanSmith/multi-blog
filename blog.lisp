@@ -1,8 +1,6 @@
 (in-package "BLOG")
 
 (defvar *site-cookie-name*)
-(defvar *domain-root* "0.0.0.0:8080")
-(defvar *reply-chat-thread*)
 
 (eval-when (:load-toplevel :compile-toplevel :execute)
   (defmacro reply-status (status &rest plist)
@@ -72,7 +70,7 @@
 		    (interactive-chat-window chat-id)
 		    (chat-window-viewer chat-id)))
 	  (index (generate-index author)))
-      (reply-status "success" "post" post "chat" chat "index" index))))
+      (reply-status "success" "blog" post "chat" chat "index" index))))
 
 (defhandler (blog get ("viewpost" postid)) (:|html|)
   (bind-query () ((session-id "session-id"))
@@ -102,81 +100,228 @@
 (defhandler (blog get ("last_post" author)) (:|content| "application/json")
     (reply (most-recent-post author)))
 
+(defun static-js-lib ()
+  (ps:ps
+    (defvar *chat-callback*)
+    (defvar *show-timestamps* false)
+    (defun create-chat ()
+      ($.post "/blog/chat/create/" 
+	      (session-obj
+	       "chat-name" (val-of "input#chat-name"))
+	      (lambda (data textstatus qxhr)
+		(if (equal (ps:getprop data 'status) "success")
+		    (let ((chat-link (concatenate 'string "/blog/chat/i/" (ps:getprop data "chat-id"))))
+		      (js-link chat-link "div#chat"))
+		    (alert "failure")))))
+    (defun manage-timestamps ()
+      (if *show-timestamps*
+	  (ps:chain 
+	   ($ "span.timestamp") (show))
+	  (ps:chain ($ "span.timestamp")
+		    (hide))))
+
+    (defun show-timestamps ()
+      (setf *show-timestamps* true)
+      (manage-timestamps))
+
+    (defun hide-timestamps ()
+      (setf *show-timestamps* false)
+      (manage-timestamps))
+		   
+		    
+    (defun set-cookie (c-name value exdays)
+      (let ((exdate (ps:new (-date))))
+	(ps:chain exdate (set-date (+ (ps:chain exdate (get-Date)) exdays)))
+	(let ((c-val (concatenate 
+		      'string
+		      (escape value)
+		      (if (not exdays)
+			  ""
+			  (concatenate 
+			   'string
+			   #.(format nil "; expires=")
+			   (ps:chain exdate (to-u-t-c-string))
+			   ))
+		      "; path=/")))
+	  (setf (ps:chain document cookie)
+		(concatenate 'string c-name "=" c-val)))))
+		  
+
+    (defun get-cookie (cname)
+      (let ((arr-cookies  (ps:chain document cookie (split ";"))))
+	(let (eqlidx x y r) 
+	  (do* ((i 0 (+ i 1))
+		(current (ps:getprop arr-cookies i) (ps:getprop arr-cookies i)))
+	       ((or (equal r cname) (>= i (ps:chain arr-cookies length)))
+		(if (equal r cname)  y  y))
+	    (setf eqlidx (ps:chain current (index-of "=")))
+	    (setf x (ps:chain current (substr 0 eqlidx)))
+	    (setf y  (ps:chain current (substr (+ eqlidx 1))))
+	    (setf r (ps:chain x (replace (ps:regex "/^\s|\s|$/g") "")))))))
+				
+    #|(defun poll-index ()
+    (ps:var timer (set-interval "checkLastPost()" 30000)))|#
+
+    (defpostfn make-post (blog post new)
+      ((title text &optional (reply-to false))
+       (if reply-to
+	   (session-obj
+	    "title" title
+	    "post" text
+	    "reply-to" reply-to)
+	   (session-obj
+	    "title" title
+	    "post" text)))
+      ((data textstatus qxhr)
+       (let ((status (ps:getprop data 'status)))
+	 (if (equal status "success")
+	     (let* ((most-recent-post (ps:getprop data 'post-id))
+		    (user (ps:getprop data 'user))
+		    (posts-link (concatenate 'string
+					     "/blog/viewpost/" most-recent-post))
+		    (indexes-link (concatenate 'string "/blog/index/" user)))
+	       (js-link posts-link "div#blog" (lambda ()) (session-obj))
+	       (js-link indexes-link "div#index")
+	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
+
+	     (ps:chain ($ "div#notify") 
+		       (html (concatenate 'string "Post Failure!")))))))
+
+    (defpostfn update-post (blog post edit)
+      ((title text id)
+       (session-obj
+	"title" title
+	"post" text
+	"post-id" id))
+      ((data textstatus qxhr)
+       (let ((status (ps:getprop data 'status)))
+	 (if (equal status "success")
+	     (let* ((most-recent-post (ps:getprop data 'post-id))
+		    (user (ps:getprop data 'user))
+		    (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
+		    (indexes-link (concatenate 'string "/blog/index/" user)))
+	       (js-link posts-link "div#blog" (lambda ()) (session-obj))
+					;(js-link "/blog/chat/" "div#chat" chat-loop-init)
+	       (js-link indexes-link "div#index")
+	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
+
+	     (ps:chain ($ "div#notify") 
+		       (html (concatenate 'string "Post Failure!")))))))
+    
+    (defpostfn update-settings (blog settings)
+      ((object) object)
+      ((data texstatus qxhr)
+       (let ((status (ps:getprop data 'status)))
+	 (when (eql status "success")
+	   (progn
+	     (ps:chain ($ "h2#title") (html (ps:getprop data "title")))
+	     (ps:chain ($ "p#subtitle") (html (ps:getprop data "subtitle"))))))))
+
+    (defpostfn login (blog login)
+      ((user password) 
+       (ps:create "user" user "password" password))
+      ((data texstatus qxhr)
+       (let ((status (ps:getprop data 'status)))
+	 (when (eql status "success")
+	   (let ((expires (ps:getprop data 'expires))
+		 (cookie-id (ps:getprop data 'cookie-id))
+		 (session-id (ps:getprop data 'session-id)))
+	     (ps:chain ($ "input#session-id") (val session-id))
+	     (set-cookie cookie-id session-id expires)
+	     (after-login user))))))
+
+    (defpostfn delete-post (blog post remove)
+      ((post-id)
+       (session-obj
+	"post-id" post-id))
+      ((data texstatus qxhr)
+       (let ((status (ps:getprop data 'status)))
+	 (when (eql status "success")
+	   (let ((post-id (ps:getprop data 'post-id)))
+	     (ps:chain ($ "div#blog") (html (concatenate 'string "Post " post-id " Deleted!"))))))))
+
+    (defun chat-loop-init ()
+      ;;need a better way to do this.
+      ;;so that I only need to maintain 1 open connection
+      ;;per chat.
+      (when *chat-callback*
+	(ps:chain *chat-callback* (abort)))
+      ($.get (concatenate 'string "/blog/chat/instant/" *chat-id*)
+	     (session-obj)
+	     (lambda (data)
+	       (ps:chain ($ "div#chatwindow") (html data))
+	       (manage-timestamps)
+	       (chat-loop))))
+
+    (defun chat-loop ()
+      (setf *chat-callback* ($.get (concatenate 'string "/blog/chat/wait/" *chat-id*)
+				   (session-obj)
+				   (lambda (data)
+				     (ps:chain ($ "div#chatwindow") (html data))
+				     (manage-timestamps)
+				     (chat-loop)))))
+			       
+    (defun chat-history (chat-id start end)
+      ($.get (concatenate 'string "/blog/chat/history/" chat-id)
+	     (session-obj
+	      :start start
+	      :end end)
+	     (lambda (data)
+	       (let ((status (ps:getprop data 'status)))
+		 (if (eql status "success")
+		     (let ((result (ps:getprop data 'result)))
+		       (ps:chain ($ "div#blog")
+				 (html result))
+		       (manage-timestamps)
+		       ))))))
+
+    (defun key-stroke-update (event)
+      (if (or (= (ps:chain event char-code) 13)
+	      (= (ps:chain event key-code) 13))
+	  (post-chat-msg)))
+
+    (defun post-chat-msg () 
+      ($.post
+       (concatenate 'string "/blog/chat/i/" *chat-id*)
+       (session-obj 
+	:message 
+	(val-of "input#message")))
+      (ps:chain ($ "input#message") (val "")))))
+
 (defhandler (blog get ("jslib")) (:|content| "application/javascript")
   (reply 
    (concatenate 'string
-		(ps:ps* `(defun init-login ()
-			   (let ((session-id (get-cookie ,*site-cookie-name*)))
+		(ps:ps* `(defvar *site-cookie-name* ,*site-cookie-name*)) 
+		(ps:ps (defun init-login ()
+			   (let ((session-id (get-cookie *site-cookie-name*)))
 			     ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
 				     (lambda (data textstatus qxhr)
 				       (if (equal (ps:getprop data 'status) "success")
 					   (progn
 					     (ps:chain ($ "input#session-id") (val session-id))
-					     (after-login (ps:getprop data 'user)))
-					   
-					   )))))
-			`(defun log-out ()
-			   ($.post "/blog/logout/" (session-obj))
-			   (ps:chain ($ "input#session-id") "")
-			   (set-cookie ,*site-cookie-name* "" 0)
-			   (ps:chain ($ "div#chat") (html ""))
-			   (init-login)
-			   (set-topbar (page-path tb-logged-out))))
-		(ps:ps
-		  (defvar *logged-in-user* nil)
-		  (defpostfn login (blog login)
-		    ((user password) 
-		     (ps:create "user" user "password" password))
-		    ((data texstatus qxhr)
-		     (let ((status (ps:getprop data 'status)))
-		       (when (eql status "success")
-			 (let ((expires (ps:getprop data 'expires))
-			       (cookie-id (ps:getprop data 'cookie-id))
-			       (session-id (ps:getprop data 'session-id)))
-			   (ps:chain ($ "input#session-id") (val session-id))
-			   (set-cookie cookie-id session-id expires)
-			   (after-login user))))))
-		  (defun set-topbar (path)
-		    ($.get path
-			   (session-obj)
-			   (lambda (topbarhtml)
-			     (ps:chain
-			      ($ "div#topbar")
-			      (html  topbarhtml)))))
-		  (defun set-cookie (c-name value exdays)
-		    (let ((exdate (ps:new (-date))))
-		      (ps:chain exdate (set-date (+ (ps:chain exdate (get-Date)) exdays)))
-		      (let ((c-val (concatenate 
-				    'string
-				    (escape value)
-				    (if (not exdays)
-					""
-					(concatenate 
-					 'string
-					 #.(format nil "; expires=")
-					 (ps:chain exdate (to-u-t-c-string))
-					 ))
-				    "; path=/")))
-			(setf (ps:chain document cookie)
-			      (concatenate 'string c-name "=" c-val)))))
-		  
-		  (defun get-cookie (cname)
-		    (let ((arr-cookies  (ps:chain document cookie (split ";"))))
-		      (let (eqlidx x y r) 
-			(do* ((i 0 (+ i 1))
-			      (current (ps:getprop arr-cookies i) (ps:getprop arr-cookies i)))
-			     ((or (equal r cname) (>= i (ps:chain arr-cookies length)))
-			      (if (equal r cname)  y  y))
-			  (setf eqlidx (ps:chain current (index-of "=")))
-			  (setf x (ps:chain current (substr 0 eqlidx)))
-			  (setf y  (ps:chain current (substr (+ eqlidx 1))))
-			  (setf r (ps:chain x (replace (ps:regex "/^\s|\s|$/g") "")))))))
+					     (after-login (ps:getprop data 'user))))))))
+			(defun log-out ()
+			  ($.post "/blog/logout/" (session-obj))
+			  (ps:chain ($ "input#session-id") "")
+			  (set-cookie *site-cookie-name* "" 0)
+			  (ps:chain ($ "div#chat") (html ""))
+			  (init-login)
+			  (set-topbar (page-path tb-logged-out)))
+			(defun after-login (user)
+			   (topbar-swap tb-logged-in-basic)
+			   (setf *logged-in-user* user))
+			(defun set-topbar (path)
+			   ($.get path
+				  (session-obj)
+				  (lambda (topbarhtml)
+				    (ps:chain
+				     ($ "div#topbar")
+				     (html  topbarhtml)))))
+			(defun redirect-user-page ()
+			   (setf window.location (concatenate 'string "/blog/main/" *logged-in-user*))))
+		(static-js-lib))))
 
-		  (defun after-login (user)
-		    (topbar-swap tb-logged-in-basic)
-		    (setf *logged-in-user* user))
-		  (defun redirect-user-page ()
-		    (setf window.location (concatenate 'string "/blog/main/" *logged-in-user*)))))))
+
 
 (defhandler (blog get ("jslib" author)) (:|content| "application/javascript")
   (setf author (string-downcase author))
@@ -184,94 +329,63 @@
     (reply 
      (concatenate 'string  
 		  (let ((most-recent-post (most-recent-post author)))
-		    (ps:ps* 
+		    (ps:ps*
+		     `(defvar *chat-id* ,chat-id)
 		     `(defvar author ,author)
-		     `(defvar *most-recent-post* ,most-recent-post) 
-		     `(defun get-init-post ()
-			(js-link (concatenate 'string "/blog/viewpost/"
-					      *most-recent-post*)
-				 "div#blog" (lambda ()) (session-obj))
-			(update-index)
-			;,@(if chat-id `((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ()) (session-obj))))
-			)
-
-		     `(defun init-login ()
-			(let ((session-id (get-cookie ,*site-cookie-name*)))
-			  ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
-				  (lambda (data textstatus qxhr)
-				    (if (equal (ps:getprop data 'status) "success")
-					(progn
-					  (ps:chain ($ "input#session-id") (val session-id))
-					  (after-login (ps:getprop data 'user))
-					  (update-index)))
-				    ,@(if chat-id
-						`((js-link ,(format nil "/blog/chat/i/~a" chat-id) "div#chat" (lambda ()) (session-obj)))
-						nil)))))
-		     `(defun log-out ()
-			(set-cookie ,*site-cookie-name* "" 0)
-			(ps:chain ($ "div#chat") (html ""))
-			(init-login)
-			(get-init-post)
-			(set-topbar (page-path tb-logged-out)))
-
-		     `(defun update-index ()
-			($.get ,(format nil "/blog/index/~a" author)
-			       (ps:create :start 0 :end 20)
-			       (lambda (data)
-				 (ps:chain 
-				  ($ "div#index")
-				  (html data)))))
-
-		    #| `(defun check-last-post ()
-			($.get ,(format nil "/blog/last_post/~a" author)  
-			       (ps:create)
-			       (lambda (server-id)
-				 (let ((this-id (val-of "input#latest")))
-				   (unless (equal this-id server-id)
-				     (update-index)
-				     (ps:chain ($ "input#latest") (val server-id)))))
-			       "json"))|#
-))
+		     `(defvar *most-recent-post* ,most-recent-post)
+		     `(defvar *site-cookie-name* ,*site-cookie-name*)))
 		  (ps:ps
-		    (defvar *chat-id* false)
-		    (defvar *chat-callback*)
-		    (defvar *show-timestamps* false)
-		    (defun create-chat ()
-		      ($.post "/blog/chat/create/" 
-			      (session-obj
-			       "chat-name" (val-of "input#chat-name"))
-			      (lambda (data textstatus qxhr)
-				(if (equal (ps:getprop data 'status) "success")
-				    (let ((chat-link (concatenate 'string "/blog/chat/i/" (ps:getprop data "chat-id"))))
-				      (js-link chat-link "div#chat"))
-				    (alert "failure")))))
-		    (defun manage-timestamps ()
-		      (if *show-timestamps*
-			  (ps:chain 
-			   ($ "span.timestamp") (show))
-			  (ps:chain ($ "span.timestamp")
-				    (hide))))
+		    (defun init-login ()
+		      (let ((session-id (get-cookie *site-cookie-name*)))
+			($.post "/blog/re-auth/" (ps:create "session-id" session-id)
+				(lambda (data textstatus qxhr)
+				  (if (equal (ps:getprop data 'status) "success")
+				      (progn
+					(ps:chain ($ "input#session-id") (val session-id))
+					(after-login (ps:getprop data 'user))
+					;(update-index)
+					)
+				      (js-link (concatenate 'string "/blog/chat/i/" *chat-id*) "div#chat" (lambda ()) (session-obj)))))))
+		  
+		    (defun get-init-post ()
+		      (js-link (concatenate 'string "/blog/viewpost/"
+					    *most-recent-post*)
+			       "div#blog" (lambda ()) (session-obj))
+			
+		      (update-index))
 
-		    (defun show-timestamps ()
-		      (setf *show-timestamps* true)
-		      (manage-timestamps))
+		     
+		    (defun log-out ()
+		      (set-cookie *site-cookie-name* "" 0)
+		      (ps:chain ($ "div#chat") (html ""))
+		      (init-login)
+		      (get-init-post)
+		      (set-topbar (page-path tb-logged-out)))
 
-		    (defun hide-timestamps ()
-		      (setf *show-timestamps* false)
-		      (manage-timestamps))
-		    
+		    (defun update-index ()
+		      ($.get (concatenate 'string "/blog/index/" author)
+			     (ps:create :start 0 :end 20)
+			     (lambda (data)
+			       (ps:chain 
+				($ "div#index")
+				(html data)))))
 		    (defun after-login (user)
 		      (if (equal user author)
 			  (progn (topbar-swap tb-logged-in)
-				 (ps:chain ($ "div#index") (html ""))
-				 (js-link "/blog/friend-feed" "div#blog" (lambda ()) (session-obj
-										      "start" 0
-										      "end" 20)))
+				 ($.get (concatenate 'string "/blog/data/" author "/" *most-recent-post* "/" *chat-id*)
+					(session-obj)
+					(lambda (json)
+					  (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					  (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					  (ps:chain ($ "div#index") (html (ps:getprop json 'index))))))
 			  (progn (set-topbar "/blog/topbar/other")
-				 (js-link (concatenate 'string "/blog/viewpost/"
-						       *most-recent-post*)
-					  "div#blog" (lambda ()) (session-obj)))))
-		    
+				 ($.get (concatenate 'string "/blog/data/" author "/" *most-recent-post* "/" *chat-id*)
+					(session-obj)
+					(lambda (json)
+					  (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					  (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					  (ps:chain ($ "div#index") (html (ps:getprop json 'index))))))))
+
 		    (defun set-topbar (path)
 		      ($.get path
 			     (session-obj
@@ -280,109 +394,6 @@
 			       (ps:chain
 				($ "div#topbar")
 				(html  topbarhtml)))))
-		    (defun set-cookie (c-name value exdays)
-		      (let ((exdate (ps:new (-date))))
-			(ps:chain exdate (set-date (+ (ps:chain exdate (get-Date)) exdays)))
-			(let ((c-val (concatenate 
-				      'string
-				      (escape value)
-				      (if (not exdays)
-					  ""
-					  (concatenate 
-					   'string
-					   #.(format nil "; expires=")
-					   (ps:chain exdate (to-u-t-c-string))
-					   ))
-				      "; path=/")))
-			  (setf (ps:chain document cookie)
-				(concatenate 'string c-name "=" c-val)))))
-		  
-
-		    (defun get-cookie (cname)
-		      (let ((arr-cookies  (ps:chain document cookie (split ";"))))
-			(let (eqlidx x y r) 
-			  (do* ((i 0 (+ i 1))
-				(current (ps:getprop arr-cookies i) (ps:getprop arr-cookies i)))
-			       ((or (equal r cname) (>= i (ps:chain arr-cookies length)))
-				(if (equal r cname)  y  y))
-			    (setf eqlidx (ps:chain current (index-of "=")))
-			    (setf x (ps:chain current (substr 0 eqlidx)))
-			    (setf y  (ps:chain current (substr (+ eqlidx 1))))
-			    (setf r (ps:chain x (replace (ps:regex "/^\s|\s|$/g") "")))))))
-				
-		    #|(defun poll-index ()
-		      (ps:var timer (set-interval "checkLastPost()" 30000)))|#
-
-		    (defpostfn make-post (blog post new)
-		      ((title text &optional (reply-to false))
-		       (if reply-to
-			   (session-obj
-			    "title" title
-			    "post" text
-			    "reply-to" reply-to)
-			   (session-obj
-			    "title" title
-			    "post" text)))
-		      ((data textstatus qxhr)
-		       (let ((status (ps:getprop data 'status)))
-			 (if (equal status "success")
-			     (let* ((most-recent-post (ps:getprop data 'post-id))
-				    (user (ps:getprop data 'user))
-				    (posts-link (concatenate 'string
-							     "/blog/viewpost/" most-recent-post))
-				    (indexes-link (concatenate 'string "/blog/index/" user)))
-			       (js-link posts-link "div#blog" (lambda ()) (session-obj))
-					;(js-link "/blog/chat/" "div#chat" chat-loop-init)
-			     
-			       (js-link indexes-link "div#index")
-			       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
-
-			     (ps:chain ($ "div#notify") 
-				       (html (concatenate 'string "Post Failure!")))))))
-
-		    (defpostfn update-post (blog post edit)
-		      ((title text id)
-		       (session-obj
-			"title" title
-			"post" text
-			"post-id" id))
-		      ((data textstatus qxhr)
-		       (let ((status (ps:getprop data 'status)))
-			 (if (equal status "success")
-			     (let* ((most-recent-post (ps:getprop data 'post-id))
-				    (user (ps:getprop data 'user))
-				    (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
-				    (indexes-link (concatenate 'string "/blog/index/" user)))
-			       (js-link posts-link "div#blog" (lambda ()) (session-obj))
-					;(js-link "/blog/chat/" "div#chat" chat-loop-init)
-			       (js-link indexes-link "div#index")
-			       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
-
-			     (ps:chain ($ "div#notify") 
-				       (html (concatenate 'string "Post Failure!")))))))
-
-		    (defpostfn update-settings (blog settings)
-		      ((object) object)
-		      ((data texstatus qxhr)
-		       (let ((status (ps:getprop data 'status)))
-			 (when (eql status "success")
-			   (progn
-			     (ps:chain ($ "h2#title") (html (ps:getprop data "title")))
-			     (ps:chain ($ "p#subtitle") (html (ps:getprop data "subtitle"))))))))
-
-		    (defpostfn login (blog login)
-		      ((user password) 
-		       (ps:create "user" user "password" password))
-		      ((data texstatus qxhr)
-		       (let ((status (ps:getprop data 'status)))
-			 (when (eql status "success")
-			   (let ((expires (ps:getprop data 'expires))
-				 (cookie-id (ps:getprop data 'cookie-id))
-				 (session-id (ps:getprop data 'session-id)))
-			     (ps:chain ($ "input#session-id") (val session-id))
-			     (set-cookie cookie-id session-id expires)
-			     (after-login user))))))
-
 		    (defpostfn add-friend (blog friends json add)
 		      (()
 		       (session-obj
@@ -393,66 +404,8 @@
 		      (()
 		       (session-obj
 			"friends" author))
-		      ((data texstatus qxhr)))
-
-
-		    (defpostfn delete-post (blog post remove)
-		      ((post-id)
-		       (session-obj
-			"post-id" post-id))
-		      ((data texstatus qxhr)
-		       (let ((status (ps:getprop data 'status)))
-			 (when (eql status "success")
-			   (let ((post-id (ps:getprop data 'post-id)))
-			     (ps:chain ($ "div#blog") (html (concatenate 'string "Post " post-id " Deleted!"))))))))
-
-		    (defun chat-loop-init ()
-		      ;;need a better way to do this.
-		      ;;so that I only need to maintain 1 open connection
-		      ;;per chat.
-		      (when *chat-callback*
-			(ps:chain *chat-callback* (abort)))
-		      ($.get (concatenate 'string "/blog/chat/instant/" *chat-id*)
-			     (session-obj)
-			     (lambda (data)
-			       (ps:chain ($ "div#chatwindow") (html data))
-			       (manage-timestamps)
-			       (chat-loop))))
-
-		    (defun chat-loop ()
-		      (setf *chat-callback* ($.get (concatenate 'string "/blog/chat/wait/" *chat-id*)
-						   (session-obj)
-						   (lambda (data)
-						     (ps:chain ($ "div#chatwindow") (html data))
-						     (manage-timestamps)
-						     (chat-loop)))))
-			       
-		    (defun chat-history (chat-id start end)
-		      ($.get (concatenate 'string "/blog/chat/history/" chat-id)
-			     (session-obj
-			      :start start
-			      :end end)
-			     (lambda (data)
-			       (let ((status (ps:getprop data 'status)))
-				 (if (eql status "success")
-				     (let ((result (ps:getprop data 'result)))
-				       (ps:chain ($ "div#blog")
-						 (html result))
-				       (manage-timestamps)
-				       ))))))
-
-		    (defun key-stroke-update (event)
-		      (if (or (= (ps:chain event char-code) 13)
-			      (= (ps:chain event key-code) 13))
-			  (post-chat-msg)))
-
-		    (defun post-chat-msg () 
-		      ($.post
-		       (concatenate 'string "/blog/chat/i/" *chat-id*)
-		       (session-obj 
-			:message 
-			(val-of "input#message")))
-		      (ps:chain ($ "input#message") (val ""))))))))
+		      ((data texstatus qxhr))))
+		  (static-js-lib)))))
 
 (page-handler  tb-logged-out)
 (page-handler  tb-logged-in)
@@ -466,8 +419,6 @@
 (page-handler tb-logged-in-chat-history)
 (page-handler tb-logged-in-post)
 (page-handler tb-logged-in-settings)
-
-
 
 (defhandler (blog get ("topbar" "other")) (:|html|)
   (bind-query () ((session-id "session-id")
@@ -554,7 +505,8 @@
 			   (:div :id "blog" :class "span8" "Body Text Goes Here")
 			   (:div :id "chat" :class "span4" "Chat Goes Here")))
 	       
-	       (:script :src "/jquery.min.js")
+	       (:script :src "/jquery-1.4.4.min.js")
+	       (:script :src "/jquery.embedly.min.js")
 	       (:script :src (format nil "/blog/jslib/~a" author))
 
 	       (cl-who:htm
@@ -566,11 +518,7 @@
 			     (ready
 			      (lambda ()
 				(get-init-post)
-				(init-login)
-						  
-				
-				#|(poll-index)|#
-				))))))
+				(init-login)))))))
 		(:input :type "hidden" :id "session-id" :name "session-id"))))))))
 
 (defhandler (blog get ("post" "new")) (:|html|)
@@ -598,7 +546,7 @@
 		       :br
 		       "Text"
 		       :br
-		       (:textarea :onkeypress (ps:ps-inline (markdownize event))
+		       (:textarea :onkeyup (ps:ps-inline (markdownize event))
 				  :style "width: 444px; height: 178px;" :name "body" :id "body")
 		       :br
 		       (:input :type "submit" :value "Submit" :onclick
@@ -614,7 +562,6 @@
 				      (val-of "input#title")
 				      (val-of "textarea#body"))))))
 		       (:div :id "preview" :name "preview")))))))
-
 
 
 (defhandler (blog post ("post" "new")) (:|content| "application/json")
@@ -666,31 +613,6 @@
 		  (reply output-string)))))
 	  (reply "error")))))
 
-#|(defhandler (blog get ("post" "remove")) (:|html|)
-  (bind-query ()
-      ((session-id "session-id"))
-    (let ((user (check-login session-id)))
-      (if user
-	  (with-recursive-connection ()
-	    (let ((post-ids (redis:red-zrange (predicate user *pst-idx*) 0 -1)))
-	      (let ((post-titles (redis:with-pipelining 
-				   (dolist (id post-ids)
-				     (hgetredis id "title" *pst-ns*)))))
-		(let ((output-string (cl-who:with-html-output-to-string (var)
-				       (:h3 "Select A Post to Remove")
-					     (:ul 
-					      (map nil (lambda (id title) 
-							 (clickable-li var title
-								       (format nil "/blog/post/remove/~a" id)
-								       "div#blog"
-								       '(lambda ()) 
-								       '(ps:create
-									 :session-id (ps:chain ($ "input#session-id") (val)))))
-						   post-ids post-titles)))))
-		  (reply output-string)))))
-	  (reply "error")))))|#
-
-
 (defhandler (blog get ("post" "remove" post-id)) (:|html|)
   (bind-query ()
       ((session-id "session-id"))
@@ -719,7 +641,6 @@
 	  (reply-status "failure"
 			"postId" post-id)))))
 
-
 (defhandler (blog get ("post" "edit" post-id)) (:|html|)
   (bind-query ()
       ((session-id "session-id"))
@@ -745,17 +666,18 @@
 			       :br
 			       "Text"
 			       :br
-			       (:textarea :onkeypress (ps:ps-inline (markdownize event))
-					  :style "width: 444px; height: 178px;" :name "body" :id "body" (cl-who:str body))
-			       :br
-			       (:input :type "submit" :value "Submit" :onclick
-				       (ps:ps-inline 
-					(update-post 
-					 (val-of "input#title")
-					 (val-of "textarea#body")
-					 (val-of "input#post-id"))))
-			       (:div :id "preview" :name "preview")
-			       (:input :type "hidden" :name "post-id" :id "post-id" :value (cl-who:str post-id))))))))
+			       (:textarea :onkeyup (ps:ps-inline (markdownize event))
+					  :style "width: 444px; height: 178px;" :name "body" :id "body" (cl-who:str body)) ;
+  :br
+  (:input :type "submit" :value "Submit" :onclick
+	  (ps:ps-inline 
+	   (update-post 
+	    (val-of "input#title")
+	    (val-of "textarea#body")
+	    (val-of "input#post-id"))))
+  
+  (:div :id "preview" :name "preview")
+  (:input :type "hidden" :name "post-id" :id "post-id" :value (cl-who:str post-id))))))))
 	  (reply "error")))))
 
 (defhandler (blog post ("post" "edit")) (:|content| "application/json")
@@ -980,13 +902,13 @@
 		   (reply-all text chat-reply-list :|html| nil)))
 	       chat-reply-table)))
 
-  (defun init-reply-chat-thread ()
+#|  (defun init-reply-chat-thread ()
     (bt:make-thread (lambda ()
 		      (bt:with-lock-held (lock)
 			(do ()
 			    (NIL)
 			  (bt:condition-wait condition-var lock)
-			  (reply-all-chats))))))
+			  (reply-all-chats))))))|#
 
 
   (defun reply-chat (chat-id)
@@ -1148,9 +1070,14 @@
 								      ,(format nil "/blog/chat/edit/~a" id)
 								      (session-obj
 								       "title" (val-of "input#ch-name")
-								       ;"default" 
-								       ;(ps:chain ($ "input#checkbox") value)
-								       )))
+					;"default" 
+					;(ps:chain ($ "input#checkbox") value)
+								       )
+								      (lambda (data textstatus qxhr)
+									(if (equal (ps:getprop data 'status) "success")
+									    (when (equal *chat-id* ,id)
+									      (ps:chain ($ "div#chatwindow h1") (html (val-of "input#ch-name"))))))
+								      ))
 			     :value "Submit"))))
 	  (reply " ")))))
 
