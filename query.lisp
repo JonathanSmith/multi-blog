@@ -37,9 +37,12 @@
 		    (:a :href 
 			(format nil "/blog/viewpost/~a" post-id)
 			(cl-who:str title)))
+
 		   (cl-who:str body-string)
+
 		   (:a :href (cl-who:str (format nil "/blog/main/~a" author))
 		       (:h4 (cl-who:str (hgetredis author "display-name" *settings-ns*))))
+
 		   (:h4 (cl-who:str date-string)))))
       page)))
 
