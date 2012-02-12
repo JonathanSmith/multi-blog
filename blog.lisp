@@ -629,17 +629,16 @@
 				  :style "width: 444px; height: 178px;" :name "body" :id "body")
 		       :br
 		       (:input :type "submit" :value "Submit" :onclick
-			       (cl-who:str
-				(if reply-to
-				    (ps:ps-inline 
-				     (make-post 
-				      (val-of "input#title")
-				      (val-of "textarea#body")
-				      (val-of "input#reply-to")))
-				    (ps:ps-inline 
-				     (make-post 
-				      (val-of "input#title")
-				      (val-of "textarea#body"))))))
+			       (if reply-to
+				   (ps:ps-inline 
+				    (make-post 
+				     (val-of "input#title")
+				     (val-of "textarea#body")
+				     (val-of "input#reply-to")))
+				   (ps:ps-inline 
+				    (make-post 
+				     (val-of "input#title")
+				     (val-of "textarea#body")))))
 		       :br
 		       (:h6 "markdown preview:")
 		       :br
@@ -846,14 +845,14 @@
 			(:input 
 			 :type "submit"
 			 :name "submit"
-			 :onclick (cl-who:str (ps:ps-inline (update-settings
+			 :onclick (ps:ps-inline (update-settings
 							     (session-obj
 							      :display-name 
 							      (val-of "input#display-name")
 							      :title
 							      (val-of "input#title")
 							      :subtitle
-							      (val-of "input#subtitle")))))
+							      (val-of "input#subtitle"))))
 			 :value "Update Settings"))))))
 	  (reply "Log In First")))))
 
