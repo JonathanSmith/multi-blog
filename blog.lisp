@@ -618,7 +618,7 @@
 
 		       :br
 		       "Title"
-		       (:input :type "text" :name "title" :id "title")
+		       (:input :type "text" :name "posttitle" :id "posttitle")
 		       (when reply-to 
 			 (cl-who:htm
 			  (:input :type "hidden" :name "reply-to" :id "reply-to" :value reply-to)))
@@ -632,12 +632,12 @@
 			       (if reply-to
 				   (ps:ps-inline 
 				    (make-post 
-				     (val-of "input#title")
+				     (val-of "input#posttitle")
 				     (val-of "textarea#body")
 				     (val-of "input#reply-to")))
 				   (ps:ps-inline 
 				    (make-post 
-				     (val-of "input#title")
+				     (val-of "input#posttitle")
 				     (val-of "textarea#body")))))
 		       :br
 		       (:h6 "markdown preview:")
@@ -743,7 +743,7 @@
 					     (ps:chain ($ "div#preview") (html (ps:chain *converter* (make-html (val-of "textarea#body")))))))))
 			       :br
 			       "Title"
-			       (:input :type "text" :name "title" :id "title" :value (cl-who:str title))
+			       (:input :type "text" :name "posttitle" :id "posttitle" :value (cl-who:str title))
 			       :br
 			       "Text"
 			       :br
@@ -753,7 +753,7 @@
   (:input :type "submit" :value "Submit" :onclick
 	  (ps:ps-inline 
 	   (update-post 
-	    (val-of "input#title")
+	    (val-of "input#posttitle")
 	    (val-of "textarea#body")
 	    (val-of "input#post-id"))))
   
@@ -839,7 +839,7 @@
 			"Display Name" :br
 			(:input :type "text" :id "display-name" :name "display-name" :value display-name) :br
 			"Title" :br
-			(:input :type "text" :id "title" :name "title" :value title) :br
+			(:input :type "text" :id "blogtitle" :name "blogtitle" :value title) :br
 			"Subtitle" :br
 			(:input :type "text" :id "subtitle" :name "subtitle" :value subtitle) :br
 			(:input 
@@ -850,7 +850,7 @@
 							      :display-name 
 							      (val-of "input#display-name")
 							      :title
-							      (val-of "input#title")
+							      (val-of "input#blogtitle")
 							      :subtitle
 							      (val-of "input#subtitle"))))
 			 :value "Update Settings"))))))
