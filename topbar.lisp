@@ -6,38 +6,17 @@
       :accessor display-name
       :initarg :display-name)
      (page-symbol :accessor page-symbol
-	     :initarg :symbol)
+		  :initarg :symbol)
      (parent :accessor parent
 	     :initarg :parent)
      (path :accessor path
 	   :initarg :path)
      (rendercode :accessor rendercode
 		 :initarg :rendercode)
-     #|(renderlambda :accessor renderlambda
-		   :initarg :renderlambda)|#
      (after-code :accessor after-code
 		 :initarg :after-code)))
 
-
-  #|(defclass topbar-object ()
-    ((display-name
-      :accessor display-name
-      :initarg :display-name)
-     (tb-symbol :accessor tb-symbol
-	     :initarg :symbol)
-     (parent :accessor parent
-	     :initarg :parent)
-     (path :accessor path
-	   :initarg :path)
-     (rendercode :accessor rendercode
-		 :initarg :rendercode)
-     #|(renderlambda :accessor renderlambda
-		   :initarg :renderlambda)|#
-     (after-code :accessor after-code
-		 :initarg :after-code)))|#
-
-  (defvar *page-object-hash* (make-hash-table))
-)
+  (defvar *page-object-hash* (make-hash-table)))
 
 (defun getpath (symbol)
     (path (gethash symbol *page-object-hash*)))
@@ -48,10 +27,6 @@
 (ps:defpsmacro topbar-swap (symbol)
   `(progn (set-topbar (page-path ,symbol))
 	  ,@(after-code (gethash symbol *page-object-hash*))))
-
-
-#|(defun render-topbar (symbol stream &rest rest)
-  (funcall (renderlambda (gethash symbol *topbar-hash*)) stream rest))|#
 
 (defun render-url (pathspec) (reduce (lambda (x y) (format nil "~a/~a"  x y)) (cons "" pathspec)))
 

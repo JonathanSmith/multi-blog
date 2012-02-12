@@ -67,10 +67,12 @@
   (reply (cl-who:with-html-output-to-string (var)
 	   (with-recursive-connection ()
 	     (let* ((response-ids (redis:red-zrange (predicate post-id *pst-res*) 0 -1))
-		   (response-titles (redis:with-pipelining
-				      (map nil (lambda (response-id) (hgetredis response-id "title" *pst-ns*)) response-ids))))
+		    (response-titles (redis:with-pipelining
+				       (map nil (lambda (response-id) (hgetredis response-id "title" *pst-ns*)) response-ids))))
 	       (map nil (lambda (response-id response-title) 
-			  (named-link var response-title (format nil "/blog/viewpost/~a" response-id) "div#blog")
+			  (named-link var response-title (format nil "/blog/viewpost/~a" response-id) "div#blog" `(lambda () 
+														    (setf *post-id* ,response-id) 
+														    (update-history)))
 			  (cl-who:htm :br)) response-ids response-titles))))))
 
 (defun post-buttons (user author post-id var)
@@ -97,7 +99,10 @@
 	 (:h5 "In Response To " 
 	      (named-link var (hgetredis reply-to "title" *pst-ns*)
 			  (format nil "/blog/viewpost/~a" reply-to)
-			  "div#blog"))
+			  "div#blog"
+			  `(lambda () 
+			     (setf *post-id* ,reply-to) 
+			     (update-history))))
 	 :br)))))
 
 (defhandler (blog get ("data" author post-id chat-id)) (:|content| "application/json")
@@ -365,87 +370,90 @@
 
 (defhandler (blog get ("jslib" author)) (:|content| "application/javascript")
   (setf author (string-downcase author))
-  (let ((chat-id (hgetredis author "default-chat" *settings-ns*)))
-    (reply 
-     (concatenate 'string  
-		  (let ((most-recent-post (most-recent-post author)))
-		    (ps:ps*
-		     `(defvar *chat-id* ,chat-id)
-		     `(defvar author ,author)
-		     `(defvar *most-recent-post* ,most-recent-post)
-		     `(defvar *site-cookie-name* ,*site-cookie-name*)))
-		  (ps:ps
-		    (defun init-login ()
-		      (let ((session-id (get-cookie *site-cookie-name*)))
-			($.post "/blog/re-auth/" (ps:create "session-id" session-id)
-				(lambda (data textstatus qxhr)
-				  (if (equal (ps:getprop data 'status) "success")
-				      (progn
-					(ps:chain ($ "input#session-id") (val session-id))
-					(after-login (ps:getprop data 'user))
-					;(update-index)
-					)
-				      (js-link (concatenate 'string "/blog/chat/i/" *chat-id*) "div#chat" (lambda ()) (session-obj)))))))
+  (reply 
+   (concatenate 'string  
+		(ps:ps* `(defvar *site-cookie-name* ,*site-cookie-name*))
+		(ps:ps
+		  (defvar *post-id*)
+		  (defvar author)
+		  (defvar *chat-id*)
 		  
-		    (defun get-init-post ()
-		      (js-link (concatenate 'string "/blog/viewpost/"
-					    *most-recent-post*)
-			       "div#blog" (lambda ()) (session-obj))
+		  (let ((counter 0))
+		    (defun update-history ()
+		      (let ((history (ps:chain window history)))
+			(ps:chain history (push-state (ps:create "post-id" *post-id* "chat-id" *chat-id*) "" 
+						      (concatenate 'string "?post-id=" *post-id* "&chat-id=" *chat-id*)))
+			(incf counter))))
+		  (defun init-login ()
+		    (let ((session-id (get-cookie *site-cookie-name*)))
+		      ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
+			      (lambda (data textstatus qxhr)
+				(if (equal (ps:getprop data 'status) "success")
+				    (progn
+				      (ps:chain ($ "input#session-id") (val session-id))
+				      (after-login (ps:getprop data 'user))
+				      )
+				    (js-link (concatenate 'string "/blog/chat/i/" *chat-id*) "div#chat" (lambda ()) (session-obj)))))))
+		  
+		  (defun get-init-post ()
+		    (js-link (concatenate 'string "/blog/viewpost/"
+					  *post-id*)
+			     "div#blog" (lambda ()) (session-obj))
 			
-		      (update-index))
+		    (update-index))
 
 		     
-		    (defun log-out ()
-		      (set-cookie *site-cookie-name* "" 0)
-		      (ps:chain ($ "div#chat") (html ""))
-		      (init-login)
-		      (get-init-post)
-		      (set-topbar (page-path tb-logged-out)))
+		  (defun log-out ()
+		    (set-cookie *site-cookie-name* "" 0)
+		    (ps:chain ($ "div#chat") (html ""))
+		    (init-login)
+		    (get-init-post)
+		    (set-topbar (page-path tb-logged-out)))
 
-		    (defun update-index ()
-		      ($.get (concatenate 'string "/blog/index/" author)
-			     (ps:create :start 0 :end 20)
-			     (lambda (data)
-			       (ps:chain 
-				($ "div#index")
-				(html data)))))
-		    (defun after-login (user)
-		      (if (equal user author)
-			  (progn (topbar-swap tb-logged-in)
-				 ($.get (concatenate 'string "/blog/data/" author "/" *most-recent-post* "/" *chat-id*)
-					(session-obj)
-					(lambda (json)
-					  (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
-					  (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
-					  (ps:chain ($ "div#index") (html (ps:getprop json 'index))))))
-			  (progn (set-topbar "/blog/topbar/other")
-				 ($.get (concatenate 'string "/blog/data/" author "/" *most-recent-post* "/" *chat-id*)
-					(session-obj)
-					(lambda (json)
-					  (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
-					  (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
-					  (ps:chain ($ "div#index") (html (ps:getprop json 'index))))))))
+		  (defun update-index ()
+		    ($.get (concatenate 'string "/blog/index/" author)
+			   (ps:create :start 0 :end 20)
+			   (lambda (data)
+			     (ps:chain 
+			      ($ "div#index")
+			      (html data)))))
+		  (defun after-login (user)
+		    (if (equal user author)
+			(progn (topbar-swap tb-logged-in)
+			       ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
+				      (session-obj)
+				      (lambda (json)
+					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					(ps:chain ($ "div#index") (html (ps:getprop json 'index))))))
+			(progn (set-topbar "/blog/topbar/other")
+			       ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
+				      (session-obj)
+				      (lambda (json)
+					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					(ps:chain ($ "div#index") (html (ps:getprop json 'index))))))))
 
-		    (defun set-topbar (path)
-		      ($.get path
-			     (session-obj
-			      "author" author)
-			     (lambda (topbarhtml)
-			       (ps:chain
-				($ "div#topbar")
-				(html  topbarhtml)))))
-		    (defpostfn add-friend (blog friends json add)
-		      (()
-		       (session-obj
-			"friends" author))
-		      ((data texstatus qxhr)))
+		  (defun set-topbar (path)
+		    ($.get path
+			   (session-obj
+			    "author" author)
+			   (lambda (topbarhtml)
+			     (ps:chain
+			      ($ "div#topbar")
+			      (html  topbarhtml)))))
+		  (defpostfn add-friend (blog friends json add)
+		    (()
+		     (session-obj
+		      "friends" author))
+		    ((data texstatus qxhr)))
 		  
-		    (defpostfn remove-friend (blog friends json remove)
-		      (()
-		       (session-obj
-			"friends" author))
-		      ((data texstatus qxhr))))
-		  (static-js-lib)))))
+		  (defpostfn remove-friend (blog friends json remove)
+		    (()
+		     (session-obj
+		      "friends" author))
+		    ((data texstatus qxhr))))
+		(static-js-lib))))
 
 (page-handler  tb-logged-out)
 (page-handler  tb-logged-in)
@@ -521,45 +529,68 @@
     (reply html)))
 
 (defhandler (blog get ("main" author)) (:|html|)
-  (setf author (string-downcase author))
-  (let ((properties (hmgetredis author *settings-ns*)))
-    (reply 
-     (cl-who:with-html-output-to-string (var)
-       (format var "<!DOCTYPE html>")
-       (:html (:head (:title (cl-who:str (getprop properties "title")))
-		     (:link :rel "stylesheet" :href "/bootstrap.css")
-		     (:style :type "text/css"  "body {padding-top: 60px;}")
-		     (format var "<!--[if lt IE 9]>
+  (bind-query () ((post-id "post-id")
+	       (chat-id "chat-id"))
+    (format t "~s~%" (list post-id chat-id))  
+    (unless  post-id
+	(setf post-id (most-recent-post author)))
+    (unless chat-id
+      (setf chat-id (hgetredis author "default-chat" *settings-ns*)))
+    (format t "~s~%" (list post-id chat-id))
+
+    (setf author (string-downcase author))
+    (let ((properties (hmgetredis author *settings-ns*)))
+      (reply 
+       (cl-who:with-html-output-to-string (var)
+	 (format var "<!DOCTYPE html>")
+	 (:html (:head (:title (cl-who:str (getprop properties "title")))
+		       (:link :rel "stylesheet" :href "/bootstrap.css")
+		       (:style :type "text/css"  "body {padding-top: 60px;}")
+		       (format var "<!--[if lt IE 9]>
       <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
     <![endif]-->"))
 	      
-	      (:body 
-	       (:div :id "topbar" (render-page tb-logged-out var))
-	       (:div :class "container"
-		     (hero-header var 
-				  (getprop properties "title")
-				  (getprop properties "subtitle"))
+		(:body 
+		 (:div :id "topbar" (render-page tb-logged-out var))
+		 (:div :class "container"
+		       (hero-header var 
+				    (getprop properties "title")
+				    (getprop properties "subtitle"))
 				  
-		     (:div :class "row"
-			   (:div :id "index" :class "span4" "Index Goes Here")
-			   (:div :id "blog" :class "span8" "Body Text Goes Here")
-			   (:div :id "chat" :class "span4" "Chat Goes Here")))
+		       (:div :class "row"
+			     (:div :id "index" :class "span4" "Index Goes Here")
+			     (:div :id "blog" :class "span8" "Body Text Goes Here")
+			     (:div :id "chat" :class "span4" "Chat Goes Here")))
 	       
-	       (:script :src "/jquery-1.4.4.min.js")
-	       (:script :src "/jquery.embedly.min.js")
-	       (:script :src (format nil "/blog/jslib/~a" author))
+		 (:script :src "/jquery-1.4.4.min.js")
+		 (:script :src "/jquery.embedly.min.js")
+		 (:script :src (format nil "/blog/jslib/~a" author))
 
-	       (cl-who:htm
-		(:script :type "text/javascript"
-			 (cl-who:str
-			  (ps:ps 
-			    (ps:chain 
-			     ($ document) 
-			     (ready
-			      (lambda ()
-				(get-init-post)
-				(init-login)))))))
-		(:input :type "hidden" :id "session-id" :name "session-id"))))))))
+		 (cl-who:htm
+		  (:script :type "text/javascript"
+			   (cl-who:str
+			    (ps:ps*
+			     `(setf (ps:chain window onpopstate)
+				    (lambda (event)
+				      (setf *post-id* (ps:getprop (ps:chain event state) "post-id"))
+				      (setf *chat-id* (ps:getprop (ps:chain event state) "chat-id"))
+				      ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
+					     (session-obj)
+					     (lambda (json)
+					       (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					       (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))))
+				      ))
+			     `(ps:chain 
+			       ($ document) 
+			       (ready
+				(lambda ()
+				  (setf *chat-id* ,chat-id)
+				  (setf author ,author)
+				  (setf *post-id* ,post-id)
+				  (update-history)
+				  (get-init-post)
+				  (init-login)))))))
+		  (:input :type "hidden" :id "session-id" :name "session-id")))))))))
 
 (defhandler (blog get ("post" "new")) (:|html|)
   (bind-query () ((session-id "session-id")
@@ -1055,7 +1086,10 @@
 		     (multiple-value-bind (ids titles owners) (chat-subs user)
 		       (map nil (lambda (id title owner)
 				  (cl-who:htm (:h4 (cl-who:str title)) :br
-					      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat" '(lambda ()) '(session-obj))
+					      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat" `(lambda ()
+														     (setf *chat-id* ,id)
+														     (update-history))
+							  '(session-obj))
 					      "|"
 					      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
 											    (topbar-swap tb-logged-in-chat-history))) "History")
@@ -1087,7 +1121,8 @@
 	     (multiple-value-bind (ids titles) (owned-chats owner)
 	       (map nil (lambda (id title)
 			  (cl-who:htm (:h4 (cl-who:str title)) :br
-				      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat")
+				      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat" `(lambda () (setf *chat-id* , id)
+														   (update-history)))
 				      "|"
 				      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
 										    (topbar-swap tb-logged-in-chat-history))) "History")
@@ -1146,14 +1181,13 @@
 
 (defhandler (blog get ("chat" "history" chat-id)) (:|content| "application/json")
   (bind-query () ((start "start")
-		  (end "end")
-		  (title "title"))
+		  (end "end"))
     (if (and start end)
 	(reply-status 
 	 "success"
 	 "result"
 	 (cl-who:with-html-output-to-string (var)
-	   (:h3 (cl-who:str title))
+	   (:h3 (cl-who:str (hgetredis chat-id "title" *chat-info*)))
 	   (:input :type "hidden" :id "ch-start" :name "ch-start" :value start)
 	   (:input :type "hidden" :id "ch-end" :name "ch-end" :value end)
 	   (cl-who:str (apply #'concatenate 'string (nreverse (lrangeredis chat-id *chat-ns* start end))))))

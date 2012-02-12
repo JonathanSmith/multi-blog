@@ -247,7 +247,9 @@
 	   (loop for id in post-index
 	      do 
 	      (let ((link (format nil "/blog/viewpost/~a" id)))
-		(clickable-li var (hgetredis id "title" *pst-ns*)  link "div#blog" '(lambda ()) '(session-obj)))))
+		(clickable-li var (hgetredis id "title" *pst-ns*)  link "div#blog" `(lambda () 
+										     (setf *post-id* ,id) 
+										     (update-history)) '(session-obj)))))
       (:input :type "hidden" :id "latest" :name "latest" :value (most-recent-post author)))))
 
 (defun add-password (name password)
