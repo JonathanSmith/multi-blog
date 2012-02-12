@@ -531,12 +531,10 @@
 (defhandler (blog get ("main" author)) (:|html|)
   (bind-query () ((post-id "post-id")
 	       (chat-id "chat-id"))
-    (format t "~s~%" (list post-id chat-id))  
     (unless  post-id
 	(setf post-id (most-recent-post author)))
     (unless chat-id
       (setf chat-id (hgetredis author "default-chat" *settings-ns*)))
-    (format t "~s~%" (list post-id chat-id))
 
     (setf author (string-downcase author))
     (let ((properties (hmgetredis author *settings-ns*)))
