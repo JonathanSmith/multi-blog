@@ -377,13 +377,10 @@
 		  (defvar *post-id*)
 		  (defvar author)
 		  (defvar *chat-id*)
-		  
-		  (let ((counter 0))
-		    (defun update-history ()
-		      (let ((history (ps:chain window history)))
-			(ps:chain history (push-state (ps:create "post-id" *post-id* "chat-id" *chat-id*) "" 
-						      (concatenate 'string "?post-id=" *post-id* "&chat-id=" *chat-id*)))
-			(incf counter))))
+		  (defvar *history*)
+		  (defun update-history ()    
+		    (ps:chain *history* (push-state (ps:create "post-id" *post-id* "chat-id" *chat-id*) "" 
+						    (concatenate 'string "?post-id=" *post-id* "&chat-id=" *chat-id*))))
 		  (defun init-login ()
 		    (let ((session-id (get-cookie *site-cookie-name*)))
 		      ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
@@ -510,6 +507,7 @@
 			 
 			 (:script :src "/jquery.min.js")
 			 (:script :src "/blog/jslib/")
+			 
 			 (:script :type "text/javascript"
 				  (cl-who:str
 				   (ps:ps 
@@ -562,26 +560,32 @@
 	       
 		 (:script :src "/jquery-1.4.4.min.js")
 		 (:script :src "/jquery.embedly.min.js")
+		 (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
 		 (:script :src (format nil "/blog/jslib/~a" author))
 
 		 (cl-who:htm
 		  (:script :type "text/javascript"
 			   (cl-who:str
 			    (ps:ps*
-			     `(setf (ps:chain window onpopstate)
-				    (lambda (event)
-				      (setf *post-id* (ps:getprop (ps:chain event state) "post-id"))
-				      (setf *chat-id* (ps:getprop (ps:chain event state) "chat-id"))
-				      ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
-					     (session-obj)
-					     (lambda (json)
-					       (ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
-					       (ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))))
-				      ))
+			     `(ps:chain ($ window) 
+					(bind "statechange"
+					  (lambda (event)
+					    (let ((new-post-id (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "post-id"))
+						  (new-chat-id (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "chat-id")))
+					      ($.get (concatenate 'string "/blog/data/" author "/" new-post-id "/" new-chat-id)
+						     (session-obj)
+						     (lambda (json)
+						       (unless (= *post-id* new-post-id)
+							 (setf *post-id* (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "post-id"))
+							 (ps:chain ($ "div#blog") (html (ps:getprop json 'blog))))
+						       (unless (= *chat-id* new-chat-id)
+							 (setf *chat-id* (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "chat-id"))
+							 (ps:chain ($ "div#chat") (html (ps:getprop json 'chat))))))))))
 			     `(ps:chain 
 			       ($ document) 
 			       (ready
 				(lambda ()
+				  (setf *history* (ps:chain window -history))
 				  (setf *chat-id* ,chat-id)
 				  (setf author ,author)
 				  (setf *post-id* ,post-id)
