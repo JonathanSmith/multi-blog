@@ -47,6 +47,6 @@
 
 (defun named-link (stream name &rest rest)
   (cl-who:with-html-output (stream)
-    (:a :href "#" :onclick  
+    (:a :onclick  
 	(ps:ps-inline* `(js-link ,@rest))
 	(cl-who:str name))))

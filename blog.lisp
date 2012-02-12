@@ -575,10 +575,10 @@
 					      ($.get (concatenate 'string "/blog/data/" author "/" new-post-id "/" new-chat-id)
 						     (session-obj)
 						     (lambda (json)
-						       (unless (= *post-id* new-post-id)
+						       (unless (equal *post-id* new-post-id)
 							 (setf *post-id* (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "post-id"))
 							 (ps:chain ($ "div#blog") (html (ps:getprop json 'blog))))
-						       (unless (= *chat-id* new-chat-id)
+						       (unless (equal *chat-id* new-chat-id)
 							 (setf *chat-id* (ps:getprop (ps:chain (ps:chain *history* (get-state)) data) "chat-id"))
 							 (ps:chain ($ "div#chat") (html (ps:getprop json 'chat))))))))))
 			     `(ps:chain 
@@ -1093,14 +1093,14 @@
 														     (update-history))
 							  '(session-obj))
 					      "|"
-					      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
+					      (:a :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
 											    (topbar-swap tb-logged-in-chat-history))) "History")
 					      (when (equalp owner user)
 						(cl-who:htm "|")
 						(named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
 							    '(lambda ()) '(session-obj)))
 					      "|"
-					      (:a :href "#" :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
+					      (:a :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
 											     (session-obj)))
 						  "Set as Default")
 					      :hr) (incf counter))
@@ -1126,13 +1126,13 @@
 				      (named-link var "View" (format nil "/blog/chat/i/~a" id) "div#chat" `(lambda () (setf *chat-id* , id)
 														   (update-history)))
 				      "|"
-				      (:a :href "#" :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
+				      (:a :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
 										    (topbar-swap tb-logged-in-chat-history))) "History")
 				      (cl-who:htm "|")
 				      (named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
 						  '(lambda ()) '(session-obj))
 				      (cl-who:htm "|")
-				      (:a :href "#" :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
+				      (:a :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
 										     (session-obj)))
 					  "Set as Default")
 				      :hr
