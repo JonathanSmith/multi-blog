@@ -2,6 +2,7 @@
 
 (defvar *site-cookie-name*)
 (defvar *embedly-key*)
+(defvar *embedly-regex* )
 
 (eval-when (:load-toplevel :compile-toplevel :execute)
   (defmacro reply-status (status &rest plist)
@@ -379,7 +380,6 @@
    (concatenate 'string  
 		(ps:ps* `(defvar *site-cookie-name* ,*site-cookie-name*))
 		(ps:ps
-		  
 		  (defvar *post-id*)
 		  (defvar author)
 		  (defvar *chat-id*)
