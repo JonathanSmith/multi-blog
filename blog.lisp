@@ -75,7 +75,7 @@
 				      `(lambda () 
 					 (setf *post-id* ,response-id) 
 					 (update-history)
-					 (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))
+					 (embedlify)
 					 ))
 			  (cl-who:htm :br)) response-ids response-titles))))))
 
@@ -106,7 +106,7 @@
 			  "div#blog"
 			  `(lambda () 
 			     (setf *post-id* ,reply-to)
-			     (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))
+			     (embedlify)
 			     (update-history))))
 	 :br)))))
 
@@ -231,7 +231,7 @@
 		    (posts-link (concatenate 'string
 					     "/blog/viewpost/" most-recent-post))
 		    (indexes-link (concatenate 'string "/blog/index/" user)))
-	       (js-link posts-link "div#blog" (lambda () (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))) (session-obj))
+	       (js-link posts-link "div#blog" (lambda () (embedlify)) (session-obj))
 	       (js-link indexes-link "div#index")
 	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
@@ -251,7 +251,7 @@
 		    (user (ps:getprop data 'user))
 		    (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
 		    (indexes-link (concatenate 'string "/blog/index/" user)))
-	       (js-link posts-link "div#blog" (lambda () (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))) (session-obj))
+	       (js-link posts-link "div#blog" (lambda () (embedlify)) (session-obj))
 	       (js-link indexes-link "div#index")
 	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
@@ -400,7 +400,7 @@
 		  (defun get-init-post ()
 		    (js-link (concatenate 'string "/blog/viewpost/"
 					  *post-id*)
-			     "div#blog" (lambda () (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))) (session-obj))
+			     "div#blog" (lambda () (embedlify)) (session-obj))
 			
 		    (update-index))
 
@@ -428,7 +428,7 @@
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
 					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
-					(ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450))))))
+					(embedlify))))
 			(progn (set-topbar "/blog/topbar/other")
 			       ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
 				      (session-obj)
@@ -436,7 +436,7 @@
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
 					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
-					(ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450))))))))
+					(embedlify))))))
 
 		  (defun set-topbar (path)
 		    ($.get path
@@ -816,7 +816,7 @@
 			      (when (and postid title)
 				(cl-who:htm 
 				 (:h2 (named-link var title (format nil "/blog/viewpost/~a" postid) "div#blog"
-						  '(lambda () (ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450)))(topbar-swap tb-logged-in-friends))))
+						  '(lambda () (embedlify)(topbar-swap tb-logged-in-friends))))
 				 (:p
 				  (cl-who:str 
 				   (if (> (length body) 140)
