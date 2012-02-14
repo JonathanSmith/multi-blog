@@ -4,7 +4,7 @@
   `(ps:chain ($ "input#session-id") (val)))
 
 (ps:defpsmacro embedlify ()
-  `(ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450 "method" "after" "wmode" "transparent"))))
+  `(ps:chain ($ "div#blog a") (embedly (ps:create "maxWidth" 450 "method" "after" "wmode" "transparent" "allowscripts" true))))
 
 (ps:defpsmacro val-of (jquery)
   `(ps:chain ($ ,jquery) (val)))
