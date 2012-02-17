@@ -10,10 +10,8 @@
 			 "method" "after"
 			 "wmode" "transparent" 
 			 "allowscripts" true
-			 "success" 
-			 (lambda () (let ((scrollbar ($ "#blogscrollbar")))
-				      (ps:chain scrollbar (tinyscrollbar))
-				      (ps:chain scrollbar (tinyscrollbar_update))))
+			  
+			 
 			 ))) 
   )
 
