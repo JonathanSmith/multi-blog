@@ -383,9 +383,13 @@
 			`(defvar ,*div-link-effects* (ps:create)))
 		(ps:ps
 		  (def-link-effect "div#blog" () 
-		    (let ((scrollbar ($ "#blogscrollbar")))
-		      (ps:chain scrollbar (tinyscrollbar))
-		      (ps:chain scrollbar (tinyscrollbar_update))))
+		   (ps:chain ($ "div#blog") (load (lambda ()
+						    (let ((scrollbar ($ "#blogscrollbar")))
+						      (ps:chain scrollbar (tinyscrollbar))
+						      (ps:chain scrollbar (tinyscrollbar_update))))))
+		   (let ((scrollbar ($ "#blogscrollbar")))
+						      (ps:chain scrollbar (tinyscrollbar))
+						      (ps:chain scrollbar (tinyscrollbar_update))))
 		 
 
 		  (def-link-effect "div#chat" () 
