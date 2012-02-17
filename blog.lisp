@@ -383,11 +383,12 @@
 			`(defvar ,*div-link-effects* (ps:create)))
 		(ps:ps
 		  (def-link-effect "div#blog" ()
-		    (ps:chain ($ "div#blog") (images-loaded
-					      (lambda ()
-						(let ((scrollbar ($ "#blogscrollbar")))
-						  (ps:chain scrollbar (tinyscrollbar))
-						  (ps:chain scrollbar (tinyscrollbar_update))))))
+		    (ps:chain ($ "div#blog") 
+			      (images-loaded
+			       (lambda ()
+				 (let ((scrollbar ($ "#blogscrollbar")))
+				   (ps:chain scrollbar (tinyscrollbar))
+				   (ps:chain scrollbar (tinyscrollbar_update))))))
 		    (let ((scrollbar ($ "#blogscrollbar")))
 		      (ps:chain scrollbar (tinyscrollbar))
 		      (ps:chain scrollbar (tinyscrollbar_update))))
@@ -446,6 +447,12 @@
 				      (session-obj)
 				      (lambda (json)
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(ps:chain ($ "div#blog") 
+						  (images-loaded
+						   (lambda ()
+						     (let ((scrollbar ($ "#blogscrollbar")))
+						       (ps:chain scrollbar (tinyscrollbar))
+						       (ps:chain scrollbar (tinyscrollbar_update))))))
 					(let ((scrollbar ($ "#blogscrollbar")))
 					  (ps:chain scrollbar (tinyscrollbar))
 					  (ps:chain scrollbar (tinyscrollbar_update)))
@@ -460,6 +467,12 @@
 				      (session-obj)
 				      (lambda (json)
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(ps:chain ($ "div#blog") 
+						  (images-loaded
+						   (lambda ()
+						     (let ((scrollbar ($ "#blogscrollbar")))
+						       (ps:chain scrollbar (tinyscrollbar))
+						       (ps:chain scrollbar (tinyscrollbar_update))))))
 					(let ((scrollbar ($ "#blogscrollbar")))
 					  (ps:chain scrollbar (tinyscrollbar))
 					  (ps:chain scrollbar (tinyscrollbar_update)))
