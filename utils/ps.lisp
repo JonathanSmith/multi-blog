@@ -17,16 +17,30 @@
   `(ps:create "session-id" (session-id)
 	      ,@rest))
 
+(defvar *div-link-effects* (gensym "div-link-effects"))
+
 (ps:defpsmacro js-link (link div-id &optional afterfn object)
-    (let ((data (gensym)))
-      `($.get ,link
-	      ,(if object object `(ps:create))
-	      (lambda (,data)
-		(ps:chain ($ ,div-id) 
-			  (html ,data))
-		,@(if afterfn
-		      `((,afterfn))
-		      ())))))
+  (let ((data (gensym))
+	(effects (gensym))
+	(effect (gensym)))
+    `($.get ,link
+	    ,(if object object `(ps:create))
+	    (lambda (,data)
+	      (ps:chain ($ ,div-id) 
+			(html ,data))
+	      (let ((,effects (ps:getprop ,*div-link-effects* ,div-id)))
+		(dolist (,effect ,effects)
+		  (funcall ,effect ,div-id ,data)))
+	      ,@(if afterfn
+		    `((,afterfn))
+		    ())))))
+
+(ps:defpsmacro def-link-effect (div-id args &body body)
+  (let ((properties (gensym)))
+  `(let ((,properties (ps:getprop ,*div-link-effects* ,div-id)))
+     (if ,properties
+	 (ps:chain ,properties (push (lambda (,@args) ,@body)))
+	 (setf (ps:getprop ,*div-link-effects* ,div-id) (array (lambda (,@args) ,@body)))))))
 
 (ps:defpsmacro defpostfn (name path 
 				 (args1 &body body1) 

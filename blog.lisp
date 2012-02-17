@@ -2,7 +2,6 @@
 
 (defvar *site-cookie-name*)
 (defvar *embedly-key*)
-(defvar *embedly-regex* )
 
 (eval-when (:load-toplevel :compile-toplevel :execute)
   (defmacro reply-status (status &rest plist)
@@ -35,15 +34,9 @@
 (defun interactive-chat-window (chat-id)
   (cl-who:with-html-output-to-string (val)
     (:html (:body 
-	    (:script :type "text/javascript"
-		     (cl-who:str 
-		      (ps:ps*
-		       `(progn
-			  (setf *chat-id* ,chat-id)
-			  (chat-loop-init)))))
-	    :br
-	    (:div :id "chatwindow")
-	    :br
+	    (:div :id "chatscrollbar"
+		  (:div :class "scrollbar" (:div :class "track" (:div :class "thumb" (:div :class "end"))))
+		  (:div :class "viewport" (:div :id "chatwindow" :class "overview")))
 	    "Message: "
 	    (:input 
 	     :id "message"
@@ -53,7 +46,14 @@
 	    :br
 	    (:input :type "submit" 
 		    :value "Send"
-		    :onclick (ps:ps-inline* `(post-chat-msg ,chat-id)))))))
+		    :onclick (ps:ps-inline* `(post-chat-msg ,chat-id)))
+	    (:script :type "text/javascript"
+		     (cl-who:str 
+		      (ps:ps*
+		       `(progn
+			  (setf *chat-id* ,chat-id)
+			  (chat-loop-init)))))
+	    ))))
 
 
 (defun chat-window-viewer (chat-id)
@@ -63,7 +63,10 @@
 		     (cl-who:str (ps:ps* `(progn
 					    (setf *chat-id* ,chat-id)
 					    (chat-loop-init)))))
-	    (:div :id "chatwindow")))))
+	    (:div :id "chatscrollbar"
+		  (:div :class "scrollbar" (:div :class "track" (:div :class "thumb" (:div :class "end"))))
+		  (:div :class "viewport"
+			(:div :id "chatwindow" :class "overview")))))))
 
 (defhandler (blog get ("post" "replies" post-id)) (:|html|)
   (reply (cl-who:with-html-output-to-string (var)
@@ -155,11 +158,8 @@
 
 (defun static-js-lib ()
   (ps:ps
-
     (defvar *chat-callback*)
-
     (defvar *show-timestamps* false)
-
     (defun create-chat ()
       ($.post "/blog/chat/create/" 
 	      (session-obj
@@ -305,6 +305,9 @@
 	       (chat-loop))))
 
     (defun chat-loop ()
+      (let ((scrollbar ($ "#chatscrollbar")))
+		      (ps:chain scrollbar (tinyscrollbar))
+		      (ps:chain scrollbar (tinyscrollbar_update "bottom")))
       (setf *chat-callback* ($.get (concatenate 'string "/blog/chat/wait/" *chat-id*)
 				   (session-obj)
 				   (lambda (data)
@@ -378,15 +381,27 @@
   (setf author (string-downcase author))
   (reply 
    (concatenate 'string  
-		(ps:ps* `(defvar *site-cookie-name* ,*site-cookie-name*))
+		(ps:ps* `(defvar *site-cookie-name* ,*site-cookie-name*)
+			`(defvar ,*div-link-effects* (ps:create)))
 		(ps:ps
+		  (def-link-effect "div#blog" () 
+		    (let ((scrollbar ($ "#blogscrollbar")))
+		      (ps:chain scrollbar (tinyscrollbar))
+		      (ps:chain scrollbar (tinyscrollbar_update))))
+		  (def-link-effect "div#chat" () 
+		    (let ((scrollbar ($ "#chatscrollbar")))
+		      (ps:chain scrollbar (tinyscrollbar))
+		      (ps:chain scrollbar (tinyscrollbar_update "bottom"))))
 		  (defvar *post-id*)
 		  (defvar author)
 		  (defvar *chat-id*)
 		  (defvar *history*)
-		  (defun update-history ()    
+		  (defun update-history ()
 		    (ps:chain *history* (push-state (ps:create "post-id" *post-id* "chat-id" *chat-id*) "" 
-						    (concatenate 'string "?post-id=" *post-id* "&chat-id=" *chat-id*))))
+						    (concatenate 'string "?post-id=" *post-id* "&chat-id=" *chat-id*)))
+		    
+		    
+		    )
 		  (defun init-login ()
 		    (let ((session-id (get-cookie *site-cookie-name*)))
 		      ($.post "/blog/re-auth/" (ps:create "session-id" session-id)
@@ -398,8 +413,7 @@
 				    (js-link (concatenate 'string "/blog/chat/i/" *chat-id*) "div#chat" (lambda ()) (session-obj)))))))
 		  
 		  (defun get-init-post ()
-		    (js-link (concatenate 'string "/blog/viewpost/"
-					  *post-id*)
+		    (js-link (concatenate 'string "/blog/viewpost/" *post-id*)
 			     "div#blog" (lambda () (embedlify)) (session-obj))
 			
 		    (update-index))
@@ -419,6 +433,7 @@
 			     (ps:chain 
 			      ($ "div#index")
 			      (html data)))))
+
 		  (defun after-login (user)
 		    (if (equal user author)
 			(progn (topbar-swap tb-logged-in)
@@ -426,7 +441,13 @@
 				      (session-obj)
 				      (lambda (json)
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(let ((scrollbar ($ "#blogscrollbar")))
+					  (ps:chain scrollbar (tinyscrollbar))
+					  (ps:chain scrollbar (tinyscrollbar_update)))
 					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					(let ((scrollbar ($ "#chatscrollbar")))
+					  (ps:chain scrollbar (tinyscrollbar))
+					  (ps:chain scrollbar (tinyscrollbar_update)))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
 					(embedlify))))
 			(progn (set-topbar "/blog/topbar/other")
@@ -434,7 +455,13 @@
 				      (session-obj)
 				      (lambda (json)
 					(ps:chain ($ "div#blog") (html (ps:getprop json 'blog)))
+					(let ((scrollbar ($ "#blogscrollbar")))
+					  (ps:chain scrollbar (tinyscrollbar))
+					  (ps:chain scrollbar (tinyscrollbar_update)))
 					(ps:chain ($ "div#chat") (html (ps:getprop json 'chat)))
+					(let ((scrollbar ($ "#chatscrollbar")))
+					  (ps:chain scrollbar (tinyscrollbar))
+					  (ps:chain scrollbar (tinyscrollbar_update "bottom")))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
 					(embedlify))))))
 
@@ -512,7 +539,7 @@
     <![endif]-->"))
 			(:body 
 			 
-			 (:script :src "/jquery.min.js")
+			 (:script :src "/jquery-1.7.1.min.js")
 			 (:script :src "/blog/jslib/")
 			 
 			 (:script :type "text/javascript"
@@ -535,9 +562,9 @@
 
 (defhandler (blog get ("main" author)) (:|html|)
   (bind-query () ((post-id "post-id")
-	       (chat-id "chat-id"))
+		  (chat-id "chat-id"))
     (unless  post-id
-	(setf post-id (most-recent-post author)))
+      (setf post-id (most-recent-post author)))
     (unless chat-id
       (setf chat-id (hgetredis author "default-chat" *settings-ns*)))
 
@@ -548,7 +575,29 @@
 	 (format var "<!DOCTYPE html>")
 	 (:html (:head (:title (cl-who:str (getprop properties "title")))
 		       (:link :rel "stylesheet" :href "/bootstrap.css")
-		       (:style :type "text/css"  "body {padding-top: 60px;}")
+		       (:style :type "text/css"  
+			       "body {padding-top: 60px;}
+#blogscrollbar { width: 470px; margin: 20px 0 10px; }
+#blogscrollbar .viewport { width: 450px; height: 400px; overflow: hidden; position: relative; }
+#blogscrollbar .overview { list-style: none; position: absolute; left: 0; top: 0; }
+#blogscrollbar .thumb .end,
+#blogscrollbar .thumb { background-color: #003D5D; }
+#blogscrollbar .scrollbar { position: relative; float: right; width: 15px; }
+#blogscrollbar .track { background-color: #D8EEFD; height: 100%; width:13px; position: relative; padding: 0 1px; }
+#blogscrollbar .thumb { height: 20px; width: 13px; cursor: pointer; overflow: hidden; position: absolute; top: 0; }
+#blogscrollbar .thumb .end { overflow: hidden; height: 5px; width: 13px; }
+#blogscrollbar .disable{ display: none; }
+
+#chatscrollbar { width: 235px; margin: 20px 0 10px; }
+#chatscrollbar .viewport { width: 215px; height: 400px; overflow: hidden; position: relative; }
+#chatscrollbar .overview { list-style: none; position: absolute; left: 0; top: 0; }
+#chatscrollbar .thumb .end,
+#chatscrollbar .thumb { background-color: #003D5D; }
+#chatscrollbar .scrollbar { position: relative; float: right; width: 15px; }
+#chatscrollbar .track { background-color: #D8EEFD; height: 100%; width:13px; position: relative; padding: 0 1px; }
+#chatscrollbar .thumb { height: 20px; width: 13px; cursor: pointer; overflow: hidden; position: absolute; top: 0; }
+#chatscrollbar .thumb .end { overflow: hidden; height: 5px; width: 13px; }
+#chatscrollbar .disable{ display: none; }")
 		       (format var "<!--[if lt IE 9]>
       <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
     <![endif]-->"))
@@ -562,10 +611,16 @@
 				  
 		       (:div :class "row"
 			     (:div :id "index" :class "span4" "Index Goes Here")
-			     (:div :id "blog" :class "span8" "Body Text Goes Here")
-			     (:div :id "chat" :class "span4" "Chat Goes Here")))
+			     (:div :id "blogscrollbar" :class "span8"
+				   (:div :class "scrollbar" (:div :class "track" (:div :class "thumb" (:div :class "end"))))
+				   (:div :class "viewport"
+					 (:div :id "blog" :class "overview" "Body Text Goes Here")))
+			     (:div :id "chat" :class "span4")
+			     
+			     ))
 	       
-		 (:script :src "/jquery-1.4.4.min.js")
+		 (:script :src "/jquery-1.7.1.min.js")
+		 (:script :src "/jquery.tinyscrollbar.js")
 		 (:script :src "/jquery.embedly.min.js")
 		 (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
 		 (:script :src "/showdown.js")
@@ -595,13 +650,17 @@
 				(lambda ()
 				  (setf (ps:getprop (ps:chain $ embedly defaults) "key")
 					,*embedly-key*)
+				  (ps:chain ($ "#blogscrollbar") (tinyscrollbar))
+				  (ps:chain ($ "#chatscrollbar") (tinyscrollbar))
 				  (setf *history* (ps:chain window -history))
 				  (setf *chat-id* ,chat-id)
 				  (setf author ,author)
 				  (setf *post-id* ,post-id)
 				  (update-history)
 				  (get-init-post)
-				  (init-login)))))))
+				  (init-login)
+				  
+				  ))))))
 		  (:input :type "hidden" :id "session-id" :name "session-id")))))))))
 
 (defhandler (blog get ("post" "new")) (:|html|)
@@ -744,7 +803,7 @@
 	      (reply (cl-who:with-html-output-to-string (var)
 		       (:html (:body
 			       (:h3 "Edit a Post")
-			       (:script :src "/showdown.js")
+			       
 			       (:script :type "text/javascript"
 					(cl-who:str 
 					 (ps:ps
@@ -994,14 +1053,6 @@
 		   (reply-all text chat-reply-list :|html| nil)))
 	       chat-reply-table)))
 
-#|  (defun init-reply-chat-thread ()
-    (bt:make-thread (lambda ()
-		      (bt:with-lock-held (lock)
-			(do ()
-			    (NIL)
-			  (bt:condition-wait condition-var lock)
-			  (reply-all-chats))))))|#
-
 
   (defun reply-chat (chat-id)
     (let ((chat-reply-list (sb-ext:with-locked-hash-table (chat-reply-table)
@@ -1013,35 +1064,8 @@
 (defhandler (blog get ("chat" "i" chat-id)) (:|html|)
   (bind-query () ((session-id "session-id"))
     (if (check-login session-id)
-	(reply (cl-who:with-html-output-to-string (val)
-		 (:html (:body 
-			 (:script :type "text/javascript"
-				  (cl-who:str 
-				   (ps:ps*
-				    `(progn
-				       (setf *chat-id* ,chat-id)
-				       (chat-loop-init)))))
-			 :br
-			 (:div :id "chatwindow")
-			 :br
-			 "Message: "
-			 (:input 
-			  :id "message"
-			  :type "text"
-			  :name "message"
-			  :onkeypress (ps:ps-inline (key-stroke-update event)))
-			 :br
-			 (:input :type "submit" 
-				 :value "Send"
-				 :onclick (ps:ps-inline* `(post-chat-msg ,chat-id)))))))
-	(reply 
-	 (cl-who:with-html-output-to-string (val)
-	   (:html (:body 
-		   (:script :type "text/javascript"
-			    (cl-who:str (ps:ps* `(progn
-						   (setf *chat-id* ,chat-id)
-						   (chat-loop-init)))))
-		   (:div :id "chatwindow"))))))))
+	(reply (interactive-chat-window chat-id))
+	(reply (chat-window-viewer chat-id)))))
 
 (defhandler (blog post ("chat" "i" chat-id)) (:|html|)
   (reply "")
@@ -1165,10 +1189,7 @@
 		     (:input :type "submit" :onclick (ps:ps-inline* `($.post 
 								      ,(format nil "/blog/chat/edit/~a" id)
 								      (session-obj
-								       "title" (val-of "input#ch-name")
-					;"default" 
-					;(ps:chain ($ "input#checkbox") value)
-								       )
+								       "title" (val-of "input#ch-name"))
 								      (lambda (data textstatus qxhr)
 									(if (equal (ps:getprop data 'status) "success")
 									    (when (equal *chat-id* ,id)
