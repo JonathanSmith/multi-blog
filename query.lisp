@@ -45,13 +45,13 @@
 
 		   (:h4 (cl-who:str date-string))
 		   (:script :type "text/javascript"
-			    (ps:ps 
+			  (cl-who:str  (ps:ps 
 			      (ps:chain
 			       ($ document)
 			       (ready (lambda ()
 					(let ((scrollbar ($ "#blogscrollbar")))
 					  (ps:chain scrollbar (tinyscrollbar))
-					  (ps:chain scrollbar (tinyscrollbar_update))))))))
+					  (ps:chain scrollbar (tinyscrollbar_update)))))))))
 		   )))
       page)))
 
