@@ -385,12 +385,7 @@
 		  (def-link-effect "div#blog" ()
 		    (let ((scrollbar ($ "#blogscrollbar")))
 		      (ps:chain scrollbar (tinyscrollbar))
-		      (ps:chain scrollbar (tinyscrollbar_update)))
-		    (ps:chain ($ "div#blog img") (load (lambda ()
-							 (let ((scrollbar ($ "#blogscrollbar")))
-							   (ps:chain scrollbar (tinyscrollbar))
-							   (ps:chain scrollbar (tinyscrollbar_update))))))
-		    )
+		      (ps:chain scrollbar (tinyscrollbar_update))))
 		 
 
 		  (def-link-effect "div#chat" () 

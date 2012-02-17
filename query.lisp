@@ -29,8 +29,8 @@
   (multiple-value-bind (second minute hour date month year)  (decode-universal-time universal-time)
     (declare (ignore second))
     (let* ((body-string (let ((s (make-string-output-stream))) 
-				   (cl-markdown:markdown body :stream s)
-				   (get-output-stream-string s)))
+			  (cl-markdown:markdown body :stream s)
+			  (get-output-stream-string s)))
 	   (date-string (format nil "At ~a/~2,'0d/~2,'0d ~2,'0d:~2,'0d" year month date hour minute))
 	   (page (cl-who:with-html-output-to-string (var)
 		   (:h2 
@@ -43,7 +43,16 @@
 		   (:a :href (cl-who:str (format nil "/blog/main/~a" author))
 		       (:h4 (cl-who:str (hgetredis author "display-name" *settings-ns*))))
 
-		   (:h4 (cl-who:str date-string)))))
+		   (:h4 (cl-who:str date-string))
+		   (:script :type "text/javascript"
+			    (ps:ps 
+			      (ps:chain
+			       ($ document)
+			       (ready (lambda ()
+					(let ((scrollbar ($ "#blogscrollbar")))
+					  (ps:chain scrollbar (tinyscrollbar))
+					  (ps:chain scrollbar (tinyscrollbar_update))))))))
+		   )))
       page)))
 
 (defun add-post-reply (post-id reply-id)
