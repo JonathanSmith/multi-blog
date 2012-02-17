@@ -375,8 +375,6 @@
 			   (setf window.location (concatenate 'string "/blog/main/" *logged-in-user*))))
 		(static-js-lib))))
 
-
-
 (defhandler (blog get ("jslib" author)) (:|content| "application/javascript")
   (setf author (string-downcase author))
   (reply 
@@ -388,6 +386,8 @@
 		    (let ((scrollbar ($ "#blogscrollbar")))
 		      (ps:chain scrollbar (tinyscrollbar))
 		      (ps:chain scrollbar (tinyscrollbar_update))))
+		 
+
 		  (def-link-effect "div#chat" () 
 		    (let ((scrollbar ($ "#chatscrollbar")))
 		      (ps:chain scrollbar (tinyscrollbar))
@@ -666,52 +666,55 @@
 (defhandler (blog get ("post" "new")) (:|html|)
   (bind-query () ((session-id "session-id")
 		  (reply-to "reply-to"))
-      (reply (cl-who:with-html-output-to-string (var)
-	       (:html (:body
-		       (:h3 "Create a new post")
+    (reply (cl-who:with-html-output-to-string (var)
+	     (:html (:body
+		     (:h3 "Create a new post")
+		     (:script :type "text/javascript"
+			      (cl-who:str 
+			       (ps:ps
+				 (defvar *converter* (ps:new (ps:chain -showdown (converter))))
+				 (defun markdownize (event)
+				   (ps:chain ($ "div#preview") 
+					     (html 
+					      (ps:chain *converter*
+							(make-html (val-of "textarea#body")))))
+				   (let ((scrollbar ($ "#blogscrollbar")))
+				     (ps:chain scrollbar (tinyscrollbar))
+				     (ps:chain scrollbar (tinyscrollbar_update)))
+				   ))))
 		       
-		       (:script :type "text/javascript"
-				(cl-who:str 
-				 (ps:ps
-				   (defvar *converter* (ps:new (ps:chain -showdown (converter))))
-				   (defun markdownize (event)
-				     (ps:chain ($ "div#preview") 
-					       (html 
-						(ps:chain *converter*
-							  (make-html (val-of "textarea#body")))))))))
-		       
-		       (when reply-to
-			 (cl-who:htm (:h4 "In response to...") :br)		 
-			 (format var "~a" (generate-post-from-db reply-to)))
+		     (when reply-to
+		       (cl-who:htm (:h4 "In response to...") :br)		 
+		       (format var "~a" (generate-post-from-db reply-to)))
 
 
-		       :br
-		       "Title"
-		       (:input :type "text" :name "posttitle" :id "posttitle")
-		       (when reply-to 
-			 (cl-who:htm
-			  (:input :type "hidden" :name "reply-to" :id "reply-to" :value reply-to)))
-		       :br
-		       "Text"
-		       :br
-		       (:textarea :onkeyup (ps:ps-inline (markdownize event))
-				  :style "width: 444px; height: 178px;" :name "body" :id "body")
-		       :br
-		       (:input :type "submit" :value "Submit" :onclick
-			       (if reply-to
-				   (ps:ps-inline 
-				    (make-post 
-				     (val-of "input#posttitle")
-				     (val-of "textarea#body")
-				     (val-of "input#reply-to")))
-				   (ps:ps-inline 
-				    (make-post 
-				     (val-of "input#posttitle")
-				     (val-of "textarea#body")))))
-		       :br
-		       (:h6 "markdown preview:")
-		       :br
-		       (:div :id "preview" :name "preview")))))))
+		     :br
+		     "Title"
+		     (:input :type "text" :name "posttitle" :id "posttitle")
+		     (when reply-to 
+		       (cl-who:htm
+			(:input :type "hidden" :name "reply-to" :id "reply-to" :value reply-to)))
+		     :br
+		     "Text"
+		     :br
+		     (:textarea :onkeyup (ps:ps-inline (markdownize event))
+				:style "width: 444px; height: 178px;" :name "body" :id "body")
+		     :br
+		     (:input :type "submit" :value "Submit" :onclick
+			     (if reply-to
+				 (ps:ps-inline 
+				  (make-post 
+				   (val-of "input#posttitle")
+				   (val-of "textarea#body")
+				   (val-of "input#reply-to")))
+				 (ps:ps-inline 
+				  (make-post 
+				   (val-of "input#posttitle")
+				   (val-of "textarea#body")))))
+		     :br
+		     (:h6 "markdown preview:")
+		     :br
+		     (:div :id "preview" :name "preview")))))))
 
 
 (defhandler (blog post ("post" "new")) (:|content| "application/json")
