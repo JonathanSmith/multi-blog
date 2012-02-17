@@ -37,21 +37,11 @@
 		    (:a :href 
 			(format nil "/blog/viewpost/~a" post-id)
 			(cl-who:str title)))
-
 		   (cl-who:str body-string)
-
 		   (:a :href (cl-who:str (format nil "/blog/main/~a" author))
 		       (:h4 (cl-who:str (hgetredis author "display-name" *settings-ns*))))
-
 		   (:h4 (cl-who:str date-string))
-		   (:script :type "text/javascript"
-			  (cl-who:str  (ps:ps 
-			      (ps:chain
-			       ($ document)
-			       (ready (lambda ()
-					(let ((scrollbar ($ "#blogscrollbar")))
-					  (ps:chain scrollbar (tinyscrollbar))
-					  (ps:chain scrollbar (tinyscrollbar_update)))))))))
+		   
 		   )))
       page)))
 
