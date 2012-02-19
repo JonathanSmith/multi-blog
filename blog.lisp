@@ -90,10 +90,7 @@
 	(named-link var (format nil "~a responses" response-count) (format nil "/blog/post/replies/~a" post-id) "div#blog")
 	(cl-who:htm "|")))
     (when user
-      (named-link var "Reply" 
-		  "/blog/post/new/"
-		  "div#blog"
-		  '(lambda ()) `(session-obj "reply-to" ,post-id))
+      (named-popup-link var "Reply" "/blog/post/editor/" `(session-obj "reply-to" ,post-id))
       (when (equalp user author)
 	(cl-who:htm "|")
 	(let ((edit-link (format nil "/blog/post/edit/~a" post-id)))
@@ -596,7 +593,7 @@
 		       (:style :type "text/css"  
 			       "body {padding-top: 60px;}
 #blogscrollbar { width: 470px; margin: 20px 0 10px; }
-#blogscrollbar .viewport { width: 450px; height: 400px; overflow: hidden; position: relative; }
+#blogscrollbar .viewport { width: 450px; height: 410px; overflow: hidden; position: relative; }
 #blogscrollbar .overview { list-style: none; position: absolute; left: 0; top: 0; }
 #blogscrollbar .thumb .end,
 #blogscrollbar .thumb { background-color: #003D5D; }
@@ -607,7 +604,7 @@
 #blogscrollbar .disable{ display: none; }
 
 #chatscrollbar { width: 235px; margin: 20px 0 10px; }
-#chatscrollbar .viewport { width: 215px; height: 400px; overflow: hidden; position: relative; }
+#chatscrollbar .viewport { width: 215px; height: 410px; overflow: hidden; position: relative; }
 #chatscrollbar .overview { list-style: none; position: absolute; left: 0; top: 0; }
 #chatscrollbar .thumb .end,
 #chatscrollbar .thumb { background-color: #003D5D; }
@@ -638,7 +635,7 @@
 			     ))
 	       
 		 (:script :src "/jquery-1.7.1.min.js")
-		 (:script :src "/jquery.tinyscrollbar.js")
+		 (:script :src "/jquery.tinyscrollbar.min.js")
 		 (:script :src "/jquery.embedly.min.js")
 		 (:script :src "/jquery.imagesloaded.min.js")
 		 (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
@@ -679,10 +676,104 @@
 				  (setf *post-id* ,post-id)
 				  (update-history)
 				  (get-init-post)
-				  (init-login)
-				  
-				  ))))))
+				  (init-login)))))))
 		  (:input :type "hidden" :id "session-id" :name "session-id")))))))))
+
+(defhandler (blog get ("post" "editor")) (:|html|)
+  (bind-query () ((session-id "session-id")
+		  (reply-to "reply-to"))
+    (reply (cl-who:with-html-output-to-string (var)
+	     (:html 
+	      (:head 
+	       (:title "Post Editor")
+	       (:link :rel "stylesheet" :href "/bootstrap.css")
+	       (:script :src "/jquery-1.7.1.min.js")
+	       (:script :src "/jquery.tinyscrollbar.min.js")
+	       (:script :src "/jquery.imagesloaded.min.js")
+	       (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
+	       (:script :src "/showdown.js")
+	       (:script :type "text/javascript"
+			(cl-who:str 
+			 (ps:ps 
+			   
+			   (defvar *converter* (ps:new (ps:chain -showdown (converter))))
+			   
+			   (defun render-title (event)
+			     (ps:chain ($ "div#render-title") 
+				       (html (ps:who-ps-html (:h1 (:a :href "" (val-of "input#editor-title")))))))
+
+			   (defun markdownize (event)
+			     (ps:chain ($ "div#render-body")
+				       (html (ps:chain *converter* (make-html (val-of "textarea#editor-body"))))))
+
+			   (defpostfn make-post (blog post new)
+			     ((title text &optional (reply-to false))
+			      (if reply-to
+				  (session-obj
+				   "title" title
+				   "post" text
+				   "reply-to" reply-to)
+				  (session-obj
+				   "title" title
+				   "post" text)))
+			     ((data textstatus qxhr)
+			      (let ((status (ps:getprop data 'status)))
+				(if (equal status "success")
+				    (ps:chain self (close))
+				    (ps:chain ($ "div#notify") 
+					      (html (concatenate 'string "Post Failure!")))))))
+			   
+			   (defpostfn update-post (blog post edit)
+			     ((title text id)
+			      (session-obj
+			       "title" title
+			       "post" text
+			       "post-id" id))
+			     ((data textstatus qxhr)
+			      (let ((status (ps:getprop data 'status)))
+				(if (equal status "success")
+				    (ps:chain self (close))
+				    (ps:chain ($ "div#notify") 
+					      (html (concatenate 'string "Post Failure!")))))))
+
+			   (ps:chain 
+			    ($ document) 
+			    (ready (lambda () (ps:chain window -history (replace-state (ps:create "session-id" "" "reply-to" "") ""
+										       (concatenate 'string "?session-id=hidden&reply-to=hidden")
+										       )))))
+			   
+			   )))
+	       (format var "<!--[if lt IE 9]>
+      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
+    <![endif]-->"))
+	       
+	      (:body 
+	       (:div :class "container"
+		     (hero-header var "Post Editor" "")
+		     (:div :class "row"
+			   (:div :id "editor" :class "span6"
+				 (:input :onkeyup (ps:ps-inline (render-title)) :type "text" :name "editor-title" :id "editor-title")
+				 (:textarea :style "width: 334px; height: 500px;" :onkeyup (ps:ps-inline (markdownize event)) :name "editor-body" :id "editor-body")
+				 (:input :type "hidden" :name "reply-to" :id "reply-to" :value reply-to)
+				 (:input :type "hidden" :id "session-id" :name "session-id" :value session-id)
+				 (:input :type "submit" :value "Submit" :onclick
+					 (if reply-to
+					     (ps:ps-inline 
+					      (make-post 
+					       (val-of "input#editor-title")
+					       (val-of "textarea#editor-body")
+					       (val-of "input#reply-to")))
+					     (ps:ps-inline 
+					      (make-post 
+					       (val-of "input#editor-title")
+					       (val-of "textarea#editor-body"))))))
+			   (:div :id "preview" :class "span6"
+				 (:h6 "Markdown Preview")
+				 (:div :id "render-title")
+				 (:div :id "render-body")))
+		     (:div :class "row"
+			   (:div :id "notify" :class "span6"))
+		     )))))))
 
 (defhandler (blog get ("post" "new")) (:|html|)
   (bind-query () ((session-id "session-id")
@@ -907,11 +998,7 @@
 				       body)))
 				 (:a :href (format nil "/blog/main/~a" author) (cl-who:str author))
 				 :br
-				 
-				 (named-link var "Reply" 
-					     "/blog/post/new/"
-					     "div#blog"
-					     '(lambda ()) `(session-obj "reply-to" ,postid))
+				 (named-popup-link var "Reply" "/blog/post/editor/" `(session-obj "reply-to" ,postid))
 				 :br
 				 :hr))))
 			  paths post-infos)))

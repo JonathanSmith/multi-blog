@@ -10,10 +10,14 @@
 			 "method" "after"
 			 "wmode" "transparent" 
 			 "allowscripts" true
-			  
-			 
-			 ))) 
-  )
+			 "success" (lambda (oembed dict)
+				     (let ((elem ($ (ps:chain dict node)))
+					   (code (ps:chain oembed code)))
+				       (ps:chain elem (after code)))
+				     (let ((scrollbar ($ "#blogscrollbar")))
+				       (ps:chain scrollbar (tinyscrollbar))
+				       (ps:chain scrollbar (tinyscrollbar_update))))
+			 ))))
 
 (ps:defpsmacro val-of (jquery)
   `(ps:chain ($ ,jquery) (val)))
@@ -76,3 +80,28 @@
     (:a :onclick  
 	(ps:ps-inline* `(js-link ,@rest))
 	(cl-who:str name))))
+
+(ps:defpsmacro popup-link (url object &rest rest)
+  (let ((urlg (gensym))
+	(parametersg (gensym))
+	(tailg (gensym))
+	(keyg (gensym))
+	(valueg (gensym))
+	(url-with-parameters (gensym)))
+    `(let ((,urlg ,url)
+	   (,parametersg ,object)
+	   (,tailg (ps:array)))
+       ($.each ,parametersg (lambda (,keyg ,valueg)  
+			      (ps:chain ,tailg (push (concatenate 'string ,keyg  "=" (encode-u-r-i-component ,valueg))))))
+       (let ((,url-with-parameters (concatenate 'string ,urlg "?" (ps:chain ,tailg (join "&")))))
+	 (ps:chain window (open ,url-with-parameters ,@rest))))))
+
+(defun named-popup-link (stream name &rest rest)
+  (cl-who:with-html-output (stream)
+    (:a :onclick (ps:ps-inline* `(popup-link ,@rest))
+	(cl-who:str name))))
+
+(defun clickable-popup-link (stream name &rest rest)
+  (cl-who:with-html-output (stream)
+    (:li :onclick (ps:ps-inline* `(popup-link ,@rest))
+	 (cl-who:str name))))

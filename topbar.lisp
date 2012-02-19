@@ -247,12 +247,12 @@
 					(- (* 1 (ps:chain ($ "input#ch-end") (val))) 20))) "Next"))))
 
 (def-topbar (tb-logged-in-post "Post" ("post") :parent tb-logged-in) ()
-  ((:li (:a  :onclick (ps:ps-inline (js-link "/blog/post/new" "div#blog")) "Add"))
+  ((:li (:a  :onclick (ps:ps-inline (popup-link "/blog/post/editor/" (session-obj))) "Add"))
    (:li (:a 
 	    :onclick 
 	    (ps:ps-inline 
 	     (js-link "/blog/post/edit" "div#blog" (lambda ())
-		      (ps:create :session-id (ps:chain ($ "input#session-id") (val))))) "Update")))
+		      (session-obj))) "Update")))
   (:input :class "input-small" :id "search" :name "search" :type "text" :placeholder "Search")
   (:button :class "btn" 
 	   :type "submit"
