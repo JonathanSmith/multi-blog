@@ -3,21 +3,23 @@
 (ps:defpsmacro session-id ()
   `(ps:chain ($ "input#session-id") (val)))
 
-(ps:defpsmacro embedlify ()
-  `(ps:chain ($ "div#blog a") 
-	     (embedly 
-	      (ps:create "maxWidth" 450
-			 "method" "after"
-			 "wmode" "transparent" 
-			 "allowscripts" true
-			 "success" (lambda (oembed dict)
-				     (let ((elem ($ (ps:chain dict node)))
-					   (code (ps:chain oembed code)))
-				       (ps:chain elem (after code)))
-				     (let ((scrollbar ($ "#blogscrollbar")))
-				       (ps:chain scrollbar (tinyscrollbar))
-				       (ps:chain scrollbar (tinyscrollbar_update))))
-			 ))))
+(ps:defpsmacro post-process ()
+  `(progn
+     (ps:chain ($ "div#blog a") 
+	       (embedly
+		(ps:create "maxWidth" 450
+			   "method" "after"
+			   "wmode" "transparent" 
+			   "allowscripts" true
+			   "success" (lambda (oembed dict)
+				       (let ((elem ($ (ps:chain dict node)))
+					     (code (ps:chain oembed code)))
+					 (ps:chain elem (after code)))
+				       (let ((scrollbar ($ "#blogscrollbar")))
+					 (ps:chain scrollbar (tinyscrollbar))
+					 (ps:chain scrollbar (tinyscrollbar_update))))
+			   )))
+     (ps:chain ($ "div#blog code") (each (lambda (i e) (ps:chain hljs (highlight-block e null true)))))))
 
 (ps:defpsmacro val-of (jquery)
   `(ps:chain ($ ,jquery) (val)))

@@ -249,7 +249,7 @@
 		(clickable-li var (hgetredis id "title" *pst-ns*)  link "div#blog" `(lambda () 
 										      (setf *post-id* ,id)
 										      (update-history)
-										      (embedlify)) '(session-obj)))))
+										      (post-process)) '(session-obj)))))
       (:input :type "hidden" :id "latest" :name "latest" :value (most-recent-post author)))))
 
 (defun add-password (name password)

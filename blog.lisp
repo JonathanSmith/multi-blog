@@ -52,8 +52,7 @@
 		      (ps:ps*
 		       `(progn
 			  (setf *chat-id* ,chat-id)
-			  (chat-loop-init)))))
-	    ))))
+			  (chat-loop-init)))))))))
 
 
 (defun chat-window-viewer (chat-id)
@@ -79,7 +78,7 @@
 				      `(lambda () 
 					 (setf *post-id* ,response-id) 
 					 (update-history)
-					 (embedlify)
+					 (post-process)
 					 ))
 			  (cl-who:htm :br)) response-ids response-titles))))))
 
@@ -93,8 +92,8 @@
       (named-popup-link var "Reply" "/blog/post/editor/" `(session-obj "reply-to" ,post-id))
       (when (equalp user author)
 	(cl-who:htm "|")
-	(let ((edit-link (format nil "/blog/post/edit/~a" post-id)))
-	  (named-link var "Edit" edit-link "div#blog" '(lambda ()) '(session-obj)))))))
+	(let ((edit-link (format nil "/blog/post/editor/~a" post-id)))
+	  (named-popup-link var "Edit" edit-link '(session-obj)))))))
 
 (defun post-is-response-header (post-id var)
   (let ((reply-to (hgetredis post-id "reply-to" *pst-ns*))) 
@@ -107,7 +106,7 @@
 			  "div#blog"
 			  `(lambda () 
 			     (setf *post-id* ,reply-to)
-			     (embedlify)
+			     (post-process)
 			     (update-history))))
 	 :br)))))
 
@@ -229,7 +228,7 @@
 		    (posts-link (concatenate 'string
 					     "/blog/viewpost/" most-recent-post))
 		    (indexes-link (concatenate 'string "/blog/index/" user)))
-	       (js-link posts-link "div#blog" (lambda () (embedlify)) (session-obj))
+	       (js-link posts-link "div#blog" (lambda () (post-process)) (session-obj))
 	       (js-link indexes-link "div#index")
 	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
@@ -249,12 +248,12 @@
 		    (user (ps:getprop data 'user))
 		    (posts-link (concatenate 'string  "/blog/viewpost/" most-recent-post))
 		    (indexes-link (concatenate 'string "/blog/index/" user)))
-	       (js-link posts-link "div#blog" (lambda () (embedlify)) (session-obj))
+	       (js-link posts-link "div#blog" (lambda () (post-process)) (session-obj))
 	       (js-link indexes-link "div#index")
 	       (ps:chain ($ "div#notify") (html (concatenate 'string "Post Success!"))))
 
 	     (ps:chain ($ "div#notify") 
-		       (html (concatenate 'string "Post Failure!")))))))
+		       (htsml (concatenate 'string "Post Failure!")))))))
     
     (defpostfn update-settings (blog settings)
       ((object) object)
@@ -417,7 +416,7 @@
 		  
 		  (defun get-init-post ()
 		    (js-link (concatenate 'string "/blog/viewpost/" *post-id*)
-			     "div#blog" (lambda () (embedlify)) (session-obj))
+			     "div#blog" (lambda () (post-process)) (session-obj))
 			
 		    (update-index))
 
@@ -458,7 +457,7 @@
 					  (ps:chain scrollbar (tinyscrollbar))
 					  (ps:chain scrollbar (tinyscrollbar_update)))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
-					(embedlify))))
+					(post-process))))
 			(progn (set-topbar "/blog/topbar/other")
 			       ($.get (concatenate 'string "/blog/data/" author "/" *post-id* "/" *chat-id*)
 				      (session-obj)
@@ -478,7 +477,7 @@
 					  (ps:chain scrollbar (tinyscrollbar))
 					  (ps:chain scrollbar (tinyscrollbar_update "bottom")))
 					(ps:chain ($ "div#index") (html (ps:getprop json 'index)))
-					(embedlify))))))
+					(post-process))))))
 
 		  (defun set-topbar (path)
 		    ($.get path
@@ -590,6 +589,7 @@
 	 (format var "<!DOCTYPE html>")
 	 (:html (:head (:title (cl-who:str (getprop properties "title")))
 		       (:link :rel "stylesheet" :href "/bootstrap.css")
+		       (:link :rel "stylesheet" :href "/highlight/styles/github.css")
 		       (:style :type "text/css"  
 			       "body {padding-top: 60px;}
 #blogscrollbar { width: 470px; margin: 20px 0 10px; }
@@ -638,6 +638,7 @@
 		 (:script :src "/jquery.tinyscrollbar.min.js")
 		 (:script :src "/jquery.embedly.min.js")
 		 (:script :src "/jquery.imagesloaded.min.js")
+		 (:script :src "/highlight/highlight.pack.js")
 		 (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
 		 (:script :src "/showdown.js")
 		 (:script :src (format nil "/blog/jslib/~a" author))
@@ -676,7 +677,8 @@
 				  (setf *post-id* ,post-id)
 				  (update-history)
 				  (get-init-post)
-				  (init-login)))))))
+				  (init-login))))
+			     )))
 		  (:input :type "hidden" :id "session-id" :name "session-id")))))))))
 
 (defhandler (blog get ("post" "editor")) (:|html|)
@@ -775,6 +777,110 @@
 			   (:div :id "notify" :class "span6"))
 		     )))))))
 
+(defhandler (blog get ("post" "editor" post-id)) (:|html|)
+  (bind-query () ((session-id "session-id")
+		  (reply-to "reply-to"))
+    (let ((user (check-login session-id)))
+      (if user
+	  (let ((post (hmgetredis post-id *pst-ns*)))
+	    (destructure-props ((title "title")
+				(body "body"))
+		post
+	      (reply (cl-who:with-html-output-to-string (var)
+		       (:html 
+			(:head 
+			 (:title "Post Editor")
+			 (:link :rel "stylesheet" :href "/bootstrap.css")
+			 (:script :src "/jquery-1.7.1.min.js")
+			 (:script :src "/jquery.tinyscrollbar.min.js")
+			 (:script :src "/jquery.imagesloaded.min.js")
+			 (:script :src "/history.js/scripts/bundled/html4+html5/jquery.history.js")
+			 (:script :src "/showdown.js")
+			 (:script :type "text/javascript"
+				  (cl-who:str 
+				   (concatenate 'string
+						(ps:ps* `(defvar *post-id* ,post-id))
+				   
+						(ps:ps 
+			   
+						  (defvar *converter* (ps:new (ps:chain -showdown (converter))))
+			   
+						  (defun render-title (event)
+						    (ps:chain ($ "div#render-title") 
+							      (html (ps:who-ps-html (:h1 (:a :href "" (val-of "input#editor-title")))))))
+
+						  (defun markdownize (event)
+						    (ps:chain ($ "div#render-body")
+							      (html (ps:chain *converter* (make-html (val-of "textarea#editor-body"))))))
+
+						  (defpostfn make-post (blog post new)
+						    ((title text &optional (reply-to false))
+						     (if reply-to
+							 (session-obj
+							  "title" title
+							  "post" text
+							  "reply-to" reply-to)
+							 (session-obj
+							  "title" title
+							  "post" text)))
+						    ((data textstatus qxhr)
+						     (let ((status (ps:getprop data 'status)))
+						       (if (equal status "success")
+							   (ps:chain self (close))
+							   (ps:chain ($ "div#notify") 
+								     (html (concatenate 'string "Post Failure!")))))))
+			   
+						  (defpostfn update-post (blog post edit)
+						    ((title text id)
+						     (session-obj
+						      "title" title
+						      "post" text
+						      "post-id" *post-id*))
+						    ((data textstatus qxhr)
+						     (let ((status (ps:getprop data 'status)))
+						       (if (equal status "success")
+							   (ps:chain self (close))
+							   (ps:chain ($ "div#notify") 
+								     (html (concatenate 'string "Post Failure!")))))))
+
+						  (ps:chain 
+						   ($ document) 
+						   (ready (lambda () (ps:chain window -history (replace-state (ps:create "session-id" "" "reply-to" "") ""
+													      (concatenate 'string "?session-id=hidden&reply-to=hidden")
+													      ))
+								  (render-title)
+								  (markdownize)
+								  )))
+			   
+						  ))))
+			 (format var "<!--[if lt IE 9]>
+      <script src=\"http://html5shim.googlecode.com/svn/trunk/html5.js\"></script>
+    <![endif]-->"))
+	       
+			(:body 
+			 (:div :class "container"
+			       (hero-header var "Post Editor" "")
+			       (:div :class "row"
+				     (:div :id "editor" :class "span6"
+					   (:input :onkeyup (ps:ps-inline (render-title)) :type "text" :name "editor-title" :id "editor-title" :value title)
+					   (:textarea :style "width: 334px; height: 500px;" :onkeyup (ps:ps-inline (markdownize event)) :name "editor-body" :id "editor-body" (cl-who:str body))
+					   (:input :type "hidden" :name "reply-to" :id "reply-to" :value reply-to)
+					   (:input :type "hidden" :id "session-id" :name "session-id" :value session-id)
+					   (:input :type "submit" :value "Submit" :onclick     
+						   (ps:ps-inline 
+						    (update-post 
+						     (val-of "input#editor-title")
+						     (val-of "textarea#editor-body")))))
+				     (:div :id "preview" :class "span6"
+					   (:h6 "Markdown Preview")
+					   (:div :id "render-title")
+					   (:div :id "render-body")))
+			       (:div :class "row"
+				     (:div :id "notify" :class "span6"))
+			       )))))))
+	  (reply "error")
+	  ))))
+
 (defhandler (blog get ("post" "new")) (:|html|)
   (bind-query () ((session-id "session-id")
 		  (reply-to "reply-to"))
@@ -860,10 +966,9 @@
 				       (map nil (lambda (id title) 
 						  (cl-who:htm
 						   (:h4 (cl-who:str title)) :br
-						   (named-link var "Edit"
-							       (format nil "/blog/post/edit/~a" id)
-							       "div#blog"
-							       '(lambda ()) 
+						   (named-popup-link var "Edit"
+							       (format nil "/blog/post/editor/~a" id)
+							       
 							       '(ps:create
 								 :session-id (ps:chain ($ "input#session-id") (val))))
 						   "|"
@@ -990,7 +1095,7 @@
 			      (when (and postid title)
 				(cl-who:htm 
 				 (:h2 (named-link var title (format nil "/blog/viewpost/~a" postid) "div#blog"
-						  '(lambda () (embedlify)(topbar-swap tb-logged-in-friends))))
+						  '(lambda () (post-process)(topbar-swap tb-logged-in-friends))))
 				 (:p
 				  (cl-who:str 
 				   (if (> (length body) 140)
@@ -1241,8 +1346,8 @@
 											    (topbar-swap tb-logged-in-chat-history))) "History")
 					      (when (equalp owner user)
 						(cl-who:htm "|")
-						(named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
-							    '(lambda ()) '(session-obj)))
+						(named-popup-link var "Edit" (format nil "/blog/chat/editor/~a" id)
+							     '(session-obj)))
 					      "|"
 					      (:a :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
 											     (session-obj)))
@@ -1273,8 +1378,8 @@
 				      (:a :onclick (ps:ps-inline* `(progn (chat-history ,id 0 20)
 										    (topbar-swap tb-logged-in-chat-history))) "History")
 				      (cl-who:htm "|")
-				      (named-link var "Edit" (format nil "/blog/chat/edit/~a" id) "div#blog"
-						  '(lambda ()) '(session-obj))
+				      (named-popup-link var "Edit" (format nil "/blog/chat/editor/~a" id)
+						   '(session-obj))
 				      (cl-who:htm "|")
 				      (:a :onclick (ps:ps-inline* `($.post ,(format nil "/blog/chat/setdefault/~a" id)
 										     (session-obj)))
